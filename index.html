@@ -1,0 +1,206 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>특정일 근무시간 관리</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero-card">
+      <div>
+        <p class="eyebrow">Work Time Manager</p>
+        <h1>특정일 근무시간 관리</h1>
+        <p class="hero-description">
+          특정일 발생시간과 사용시간을 한 화면에서 관리하고, 30일 만료와 FIFO 차감을 자동 처리합니다.
+        </p>
+      </div>
+      <div class="hero-actions">
+        <button id="seedDemoBtn" class="secondary-btn" type="button">샘플 데이터 넣기</button>
+        <button id="resetBtn" class="danger-btn" type="button">데이터 초기화</button>
+      </div>
+    </header>
+
+    <section class="summary-grid">
+      <article class="summary-card accent-blue">
+        <p class="summary-label">총 남은 특정일 시간</p>
+        <strong id="totalRemainingLabel" class="summary-value">0분</strong>
+        <span id="validEntryCountLabel" class="summary-meta">유효한 발생 기록 0건</span>
+      </article>
+
+      <article class="summary-card accent-orange">
+        <p class="summary-label">오늘 퇴근 가능 시간</p>
+        <strong id="leaveTimeLabel" class="summary-value">계산 전</strong>
+        <span id="leaveTimeMeta" class="summary-meta">오늘 근무유형을 선택하세요.</span>
+      </article>
+
+      <article class="summary-card accent-green">
+        <label class="inline-field">
+          <span>오늘 근무유형</span>
+          <select id="todayWorkType"></select>
+        </label>
+        <span class="summary-meta">하루 최대 사용 가능 시간은 4시간으로 제한됩니다.</span>
+      </article>
+    </section>
+
+    <main class="content-grid">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">입력</p>
+            <h2>발생기록 입력</h2>
+          </div>
+          <span id="attendanceFormMode" class="pill neutral">신규 등록</span>
+        </div>
+
+        <form id="attendanceForm" class="form-grid">
+          <input type="hidden" id="attendanceId">
+          <label>
+            <span>날짜</span>
+            <input id="attendanceDate" type="date" required>
+          </label>
+          <label>
+            <span>근무유형</span>
+            <select id="attendanceWorkType" required></select>
+          </label>
+          <label>
+            <span>실제 출근시간</span>
+            <input id="actualStart" type="time" required>
+          </label>
+          <label>
+            <span>실제 퇴근시간</span>
+            <input id="actualEnd" type="time" required>
+          </label>
+          <label class="checkbox-field">
+            <input id="overtimeChecked" type="checkbox">
+            <span>시간외근무</span>
+          </label>
+          <div class="full-width computed-panel">
+            <span>예상 발생시간</span>
+            <strong id="computedEarnedLabel">0분</strong>
+          </div>
+          <div class="full-width form-actions">
+            <button class="primary-btn" type="submit">발생기록 저장</button>
+            <button id="cancelAttendanceEditBtn" class="ghost-btn" type="button">편집 취소</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">입력</p>
+            <h2>사용기록 입력</h2>
+          </div>
+          <span id="usageFormMode" class="pill neutral">신규 등록</span>
+        </div>
+
+        <form id="usageForm" class="form-grid">
+          <input type="hidden" id="usageId">
+          <label>
+            <span>날짜</span>
+            <input id="usageDate" type="date" required>
+          </label>
+          <label>
+            <span>근무유형</span>
+            <select id="usageWorkType" required></select>
+          </label>
+          <label>
+            <span>사용 시작시간</span>
+            <div class="inline-field">
+              <select id="usageStartHour" aria-label="사용 시작 시" required></select>
+              <select id="usageStartMinute" aria-label="사용 시작 분" required>
+                <option value="00">00분</option>
+                <option value="30">30분</option>
+              </select>
+            </div>
+            <input id="usageStart" type="hidden" required>
+          </label>
+          <label>
+            <span>사용 종료시간</span>
+            <div class="inline-field">
+              <select id="usageEndHour" aria-label="사용 종료 시" required></select>
+              <select id="usageEndMinute" aria-label="사용 종료 분" required>
+                <option value="00">00분</option>
+                <option value="30">30분</option>
+              </select>
+            </div>
+            <input id="usageEnd" type="hidden" required>
+          </label>
+          <div class="full-width computed-panel">
+            <span>사용시간</span>
+            <strong id="computedUsageLabel">0분</strong>
+          </div>
+          <div class="full-width form-actions">
+            <button class="primary-btn" type="submit">사용기록 저장</button>
+            <button id="cancelUsageEditBtn" class="ghost-btn" type="button">편집 취소</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">업로드</p>
+            <h2>근태 엑셀 업로드</h2>
+          </div>
+          <a class="text-link" href="./sample_attendance.xml" download>샘플 엑셀 다운로드</a>
+        </div>
+
+        <div class="upload-panel">
+          <input id="excelFile" type="file" accept=".xlsx,.xls,.xml,.csv,.html">
+          <button id="uploadBtn" class="primary-btn" type="button">파일 반영</button>
+          <p class="helper-text">
+            `xlsx`, `xls`, `xml`, `csv`를 지원합니다. 같은 날짜는 중복 저장하지 않고 기존 기록을 유지합니다.
+          </p>
+          <div id="uploadResult" class="upload-result"></div>
+        </div>
+      </section>
+
+      <section class="card wide-card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">조회</p>
+            <h2>발생 기록 리스트</h2>
+          </div>
+          <span id="attendanceCount" class="pill neutral">0건</span>
+        </div>
+        <div id="attendanceList" class="list-stack"></div>
+      </section>
+
+      <section class="card wide-card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">조회</p>
+            <h2>사용 기록 리스트</h2>
+          </div>
+          <span id="usageCount" class="pill neutral">0건</span>
+        </div>
+        <div id="usageList" class="list-stack"></div>
+      </section>
+
+      <section class="card wide-card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">흐름</p>
+            <h2>통합 사용내용 리스트</h2>
+          </div>
+          <span class="pill info">발생 / 사용 / 차감 후 잔여시간</span>
+        </div>
+        <div id="timelineList" class="list-stack"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="emptyStateTemplate">
+    <div class="empty-state">
+      <strong>표시할 데이터가 없습니다.</strong>
+      <span>입력 또는 업로드 후 자동으로 목록이 갱신됩니다.</span>
+    </div>
+  </template>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
