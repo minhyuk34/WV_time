@@ -1,6 +1,8 @@
 ﻿const STORAGE_KEY = "specificDayWorkManager_v1";
 const FLOOR_UNIT = 30;
 const MAX_DAILY_USAGE_MINUTES = 240;
+const LUNCH_START_MINUTES = 12 * 60;
+const LUNCH_END_MINUTES = 13 * 60;
 const WORK_TYPES = {
   A: { label: "A형", start: "07:00", end: "16:00" },
   "A-1": { label: "A-1형", start: "07:30", end: "16:30" },
@@ -261,7 +263,7 @@ function buildGeneratedTimeRanges(record) {
 }
 function calculateUsageMinutes(startTime, endTime) {
   const normalized = normalizeRangeToHalfHour(startTime, endTime);
-  return normalized ? normalized.end - normalized.start : 0;
+  return normalized ? calculateUsageMinutesExcludingLunch(normalized.start, normalized.end) : 0;
 }
 function buildLedger(options = {}) {
   const attendanceRecords = cloneRecords(options.attendanceRecordOverride ? upsertClone(state.attendanceRecords, options.attendanceRecordOverride) : state.attendanceRecords).sort(sortByDateThenId);
@@ -314,7 +316,7 @@ function renderSummary() {
   const totalRemaining = validEntries.reduce((sum, item) => sum + item.remainingMinutes, 0);
   const usableToday = Math.min(MAX_DAILY_USAGE_MINUTES, totalRemaining);
   const schedule = WORK_TYPES[elements.todayWorkType.value];
-  const leaveMinutes = toMinutes(schedule.end) - usableToday;
+  const leaveMinutes = calculateLeaveTimeExcludingLunch(elements.todayWorkType.value, usableToday);
   elements.totalRemainingLabel.textContent = formatDuration(totalRemaining);
   elements.validEntryCountLabel.textContent = `유효한 발생 기록 ${validEntries.length}건`;
   elements.leaveTimeLabel.textContent = usableToday > 0 ? formatTime(leaveMinutes) : schedule.end;
@@ -599,7 +601,7 @@ function formatUsageRange(usageRecord, minutes = null) {
   const normalized = normalizeRangeToHalfHour(usageRecord.startTime, usageRecord.endTime);
   const startLabel = normalized ? formatTime(normalized.start) : usageRecord.startTime;
   const endLabel = normalized ? formatTime(normalized.end) : usageRecord.endTime;
-  const duration = minutes ?? usageRecord.durationMinutes ?? (normalized ? normalized.end - normalized.start : 0);
+  const duration = minutes ?? usageRecord.durationMinutes ?? (normalized ? calculateUsageMinutesExcludingLunch(normalized.start, normalized.end) : 0);
   return `${formatShortDate(usageRecord.date)} ${startLabel}~${endLabel}(${formatDuration(duration)})`;
 }
 function allocateFromGeneratedRanges(entry, minutesToAllocate) {
@@ -619,6 +621,41 @@ function allocateFromGeneratedRanges(entry, minutesToAllocate) {
 function floorToHalfHour(timeString) { return formatTime(floorToUnit(toMinutes(timeString), FLOOR_UNIT)); }
 function floorTimeToHalfHour(timeString) { return timeString ? floorToHalfHour(timeString) : ""; }
 function normalizeUsageTimeInput(timeString) { return floorTimeToHalfHour(timeString); }
+// Shared helper so usage deduction and leave-time calculation exclude the same lunch window.
+function getLunchOverlapMinutes(startMinutes, endMinutes) {
+  const overlapStart = Math.max(startMinutes, LUNCH_START_MINUTES);
+  const overlapEnd = Math.min(endMinutes, LUNCH_END_MINUTES);
+  return overlapEnd > overlapStart ? overlapEnd - overlapStart : 0;
+}
+function calculateUsageMinutesExcludingLunch(startMinutes, endMinutes) {
+  if (startMinutes >= endMinutes) return 0;
+  const totalUsage = endMinutes - startMinutes;
+  const lunchOverlap = getLunchOverlapMinutes(startMinutes, endMinutes);
+  return Math.max(0, floorToUnit(totalUsage - lunchOverlap, FLOOR_UNIT));
+}
+// Walk backward from scheduled end and skip lunch so early-leave time matches actual usable minutes.
+function calculateLeaveTimeExcludingLunch(workType, usableMinutes) {
+  const schedule = WORK_TYPES[resolveWorkTypeKey(workType)];
+  if (!schedule) return toMinutes("18:00");
+  const scheduleStart = toMinutes(schedule.start);
+  let cursor = toMinutes(schedule.end);
+  let remainingUsage = Math.max(0, floorToUnit(usableMinutes, FLOOR_UNIT));
+  if (remainingUsage <= 0) return cursor;
+  if (cursor > LUNCH_END_MINUTES) {
+    const afternoonStart = Math.max(scheduleStart, LUNCH_END_MINUTES);
+    const availableAfternoon = Math.max(0, cursor - afternoonStart);
+    const usedAfternoon = Math.min(availableAfternoon, remainingUsage);
+    cursor -= usedAfternoon;
+    remainingUsage -= usedAfternoon;
+  }
+  if (remainingUsage > 0) {
+    cursor = Math.min(cursor, LUNCH_START_MINUTES);
+    const availableMorning = Math.max(0, cursor - scheduleStart);
+    const usedMorning = Math.min(availableMorning, remainingUsage);
+    cursor -= usedMorning;
+  }
+  return Math.max(scheduleStart, cursor);
+}
 function normalizeRangeToHalfHour(startTime, endTime) {
   if (!startTime || !endTime) return null;
   const start = floorToUnit(toMinutes(startTime), FLOOR_UNIT);
