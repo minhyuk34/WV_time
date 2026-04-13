@@ -85,14 +85,12 @@ function populateUsageTimeSelects() {
 function populateUsageAttendanceOptions(selectedDate = elements.usageAttendanceDate?.value || "") {
   const usageDate = elements.usageDate.value;
   const options = ['<option value="">자동 선택(FIFO)</option>'];
-  state.attendanceRecords
-    .slice()
-    .sort(sortByDateThenId)
-    .forEach((record) => {
-      const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
-      const isDisabled = Boolean(usageDate) && compareDate(record.date, usageDate) > 0;
-      options.push(`<option value="${record.date}" ${isDisabled ? "disabled" : ""}>${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · ${formatDuration(generatedMinutes)}</option>`);
-    });
+  getSelectableAttendanceEntries(usageDate).forEach((entry) => {
+    const isFutureRecord = Boolean(usageDate) && compareDate(entry.date, usageDate) > 0;
+    const isExpiredRecord = Boolean(usageDate) && compareDate(entry.expiryDate, usageDate) < 0;
+    const isDisabled = isFutureRecord || isExpiredRecord;
+    options.push(`<option value="${entry.date}" ${isDisabled ? "disabled" : ""}>${formatSelectableAttendanceLabel(entry)}</option>`);
+  });
   elements.usageAttendanceDate.innerHTML = options.join("");
   const selectedOptionExists = Array.from(elements.usageAttendanceDate.options).some((option) => option.value === selectedDate && !option.disabled);
   elements.usageAttendanceDate.value = selectedOptionExists ? selectedDate : "";
@@ -191,12 +189,28 @@ function renderAll() {
   renderUsageList();
   renderTimelineList();
 }
+function getSelectableAttendanceEntries(usageDate = "") {
+  const excludeUsageId = elements.usageId?.value || "";
+  return buildLedger({ excludeUsageId }).generatedEntries
+    .filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0)
+    .filter((entry) => !usageDate || compareDate(entry.date, usageDate) <= 0)
+    .filter((entry) => !usageDate || compareDate(entry.expiryDate, usageDate) >= 0)
+    .sort(sortByDateThenId);
+}
+function formatSelectableAttendanceLabel(entry) {
+  const schedule = WORK_TYPES[resolveWorkTypeKey(entry.workType)];
+  return `${entry.date} · ${schedule.label} · 사용 ${formatDuration(entry.usedMinutes)} / 잔여 ${formatDuration(entry.remainingMinutes)}`;
+}
 function getSelectedAttendanceLabel(selectedAttendanceDate) {
   if (!selectedAttendanceDate) return "자동 선택(FIFO)";
   const record = state.attendanceRecords.find((item) => item.date === selectedAttendanceDate);
   if (!record) return `${selectedAttendanceDate} · 삭제된 기록`;
-  const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
-  return `${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · ${formatDuration(generatedMinutes)}`;
+  const entry = buildLedger().generatedEntries.find((item) => item.date === selectedAttendanceDate);
+  if (!entry) {
+    const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
+    return `${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · 사용 0분 / 잔여 ${formatDuration(generatedMinutes)}`;
+  }
+  return formatSelectableAttendanceLabel(entry);
 }
 function handleAttendanceSubmit(event) {
   event.preventDefault();
@@ -305,7 +319,9 @@ function calculateUsageMinutes(startTime, endTime) {
 }
 function buildLedger(options = {}) {
   const attendanceRecords = cloneRecords(options.attendanceRecordOverride ? upsertClone(state.attendanceRecords, options.attendanceRecordOverride) : state.attendanceRecords).sort(sortByDateThenId);
-  const usageRecords = cloneRecords(options.usageRecordOverride ? upsertClone(state.usageRecords, options.usageRecordOverride) : state.usageRecords)
+  const sourceUsageRecords = options.usageRecordOverride ? upsertClone(state.usageRecords, options.usageRecordOverride) : state.usageRecords;
+  const filteredUsageRecords = options.excludeUsageId ? sourceUsageRecords.filter((item) => item.id !== options.excludeUsageId) : sourceUsageRecords;
+  const usageRecords = cloneRecords(filteredUsageRecords)
     .map((item) => ({ ...item, startTime: normalizeUsageTimeInput(item.startTime), endTime: normalizeUsageTimeInput(item.endTime), durationMinutes: item.durationMinutes ?? calculateUsageMinutes(item.startTime, item.endTime) }))
     .sort(sortByDateThenId);
   const generatedEntries = attendanceRecords.map((record) => {
