@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Worksheet ss:Name="Attendance">
+    <Table>
+      <Row>
+        <Cell><Data ss:Type="String">날짜</Data></Cell>
+        <Cell><Data ss:Type="String">근무유형</Data></Cell>
+        <Cell><Data ss:Type="String">실제출근시간</Data></Cell>
+        <Cell><Data ss:Type="String">실제퇴근시간</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">2026-04-01</Data></Cell>
+        <Cell><Data ss:Type="String">C</Data></Cell>
+        <Cell><Data ss:Type="String">08:00</Data></Cell>
+        <Cell><Data ss:Type="String">19:00</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">2026-04-02</Data></Cell>
+        <Cell><Data ss:Type="String">A</Data></Cell>
+        <Cell><Data ss:Type="String">06:30</Data></Cell>
+        <Cell><Data ss:Type="String">16:30</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">2026-04-03</Data></Cell>
+        <Cell><Data ss:Type="String">B-1</Data></Cell>
+        <Cell><Data ss:Type="String">08:00</Data></Cell>
+        <Cell><Data ss:Type="String">20:30</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+</Workbook>

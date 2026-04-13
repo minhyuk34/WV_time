@@ -33,6 +33,7 @@ const elements = {
   usageForm: document.getElementById("usageForm"),
   usageId: document.getElementById("usageId"),
   usageDate: document.getElementById("usageDate"),
+  usageAttendanceDate: document.getElementById("usageAttendanceDate"),
   usageWorkType: document.getElementById("usageWorkType"),
   usageStartHour: document.getElementById("usageStartHour"),
   usageStartMinute: document.getElementById("usageStartMinute"),
@@ -58,6 +59,7 @@ initialize();
 function initialize() {
   populateWorkTypeSelects();
   populateUsageTimeSelects();
+  populateUsageAttendanceOptions();
   elements.usageStart.step = "1800";
   elements.usageEnd.step = "1800";
   bindEvents();
@@ -80,6 +82,21 @@ function populateUsageTimeSelects() {
   elements.usageStartMinute.value = "00";
   elements.usageEndMinute.value = "00";
 }
+function populateUsageAttendanceOptions(selectedDate = elements.usageAttendanceDate?.value || "") {
+  const usageDate = elements.usageDate.value;
+  const options = ['<option value="">자동 선택(FIFO)</option>'];
+  state.attendanceRecords
+    .slice()
+    .sort(sortByDateThenId)
+    .forEach((record) => {
+      const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
+      const isDisabled = Boolean(usageDate) && compareDate(record.date, usageDate) > 0;
+      options.push(`<option value="${record.date}" ${isDisabled ? "disabled" : ""}>${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · ${formatDuration(generatedMinutes)}</option>`);
+    });
+  elements.usageAttendanceDate.innerHTML = options.join("");
+  const selectedOptionExists = Array.from(elements.usageAttendanceDate.options).some((option) => option.value === selectedDate && !option.disabled);
+  elements.usageAttendanceDate.value = selectedOptionExists ? selectedDate : "";
+}
 function bindEvents() {
   elements.attendanceForm.addEventListener("submit", handleAttendanceSubmit);
   elements.usageForm.addEventListener("submit", handleUsageSubmit);
@@ -94,6 +111,7 @@ function bindEvents() {
   elements.usageStartMinute.addEventListener("change", () => handleUsageTimeInput("start"));
   elements.usageEndHour.addEventListener("change", () => handleUsageTimeInput("end"));
   elements.usageEndMinute.addEventListener("change", () => handleUsageTimeInput("end"));
+  elements.usageDate.addEventListener("input", () => populateUsageAttendanceOptions());
   elements.todayWorkType.addEventListener("change", renderSummary);
   elements.uploadBtn.addEventListener("click", () => handleExcelUpload());
   elements.seedDemoBtn.addEventListener("click", seedDemoData);
@@ -133,6 +151,7 @@ function resetUsageForm() {
   elements.usageWorkType.value = "C";
   setUsageTimeControl("start", "");
   setUsageTimeControl("end", "");
+  populateUsageAttendanceOptions("");
   elements.usageFormMode.textContent = "신규 등록";
   elements.usageFormMode.className = "pill neutral";
   elements.computedUsageLabel.textContent = "0분";
@@ -163,7 +182,22 @@ function setUsageTimeControl(target, timeString) {
   minuteElement.value = minute;
   inputElement.value = normalized;
 }
-function renderAll() { renderAttendancePreview(); renderUsagePreview(); renderSummary(); renderAttendanceList(); renderUsageList(); renderTimelineList(); }
+function renderAll() {
+  populateUsageAttendanceOptions();
+  renderAttendancePreview();
+  renderUsagePreview();
+  renderSummary();
+  renderAttendanceList();
+  renderUsageList();
+  renderTimelineList();
+}
+function getSelectedAttendanceLabel(selectedAttendanceDate) {
+  if (!selectedAttendanceDate) return "자동 선택(FIFO)";
+  const record = state.attendanceRecords.find((item) => item.date === selectedAttendanceDate);
+  if (!record) return `${selectedAttendanceDate} · 삭제된 기록`;
+  const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
+  return `${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · ${formatDuration(generatedMinutes)}`;
+}
 function handleAttendanceSubmit(event) {
   event.preventDefault();
   const record = { id: elements.attendanceId.value || createId("attendance"), date: elements.attendanceDate.value, workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked, source: "manual" };
@@ -187,6 +221,7 @@ function handleAttendanceSubmit(event) {
   }
   saveAttendanceRecords();
   resetAttendanceForm();
+  populateUsageAttendanceOptions();
   rerenderAll();
 }
 function handleUsageSubmit(event) {
@@ -197,7 +232,7 @@ function handleUsageSubmit(event) {
   const normalizedEndTime = normalizeUsageTimeInput(elements.usageEnd.value);
   setUsageTimeControl("start", normalizedStartTime);
   setUsageTimeControl("end", normalizedEndTime);
-  const record = { id: elements.usageId.value || createId("usage"), date: elements.usageDate.value, workType: elements.usageWorkType.value, startTime: normalizedStartTime, endTime: normalizedEndTime };
+  const record = { id: elements.usageId.value || createId("usage"), date: elements.usageDate.value, workType: elements.usageWorkType.value, startTime: normalizedStartTime, endTime: normalizedEndTime, selectedAttendanceDate: elements.usageAttendanceDate.value };
   const validationMessage = validateUsageRecord(record);
   if (validationMessage) return alert(validationMessage);
   const durationMinutes = calculateUsageMinutes(record.startTime, record.endTime);
@@ -209,6 +244,7 @@ function handleUsageSubmit(event) {
   else state.usageRecords.push({ ...record, durationMinutes });
   saveState();
   resetUsageForm();
+  populateUsageAttendanceOptions();
   renderAll();
 }
 function validateAttendanceRecord(record) {
@@ -219,6 +255,8 @@ function validateAttendanceRecord(record) {
 function validateUsageRecord(record) {
   if (!record.date || !record.workType || !record.startTime || !record.endTime) return "사용기록의 모든 필드를 입력하세요.";
   if (toMinutes(record.endTime) <= toMinutes(record.startTime)) return "사용 종료시간은 시작시간보다 늦어야 합니다.";
+  if (record.selectedAttendanceDate && compareDate(record.selectedAttendanceDate, record.date) > 0) return "사용일보다 미래의 발생기록은 선택할 수 없습니다.";
+  if (record.selectedAttendanceDate && !state.attendanceRecords.some((item) => item.date === record.selectedAttendanceDate)) return "선택한 발생기록 날짜를 찾을 수 없습니다.";
   return "";
 }
 function renderAttendancePreview() {
@@ -283,6 +321,7 @@ function buildLedger(options = {}) {
     for (const entry of generatedEntries) {
       if (remainingUsage <= 0) break;
       if (entry.earnedMinutes <= 0 || entry.remainingMinutes <= 0) continue;
+      if (usage.selectedAttendanceDate && entry.date !== usage.selectedAttendanceDate) continue;
       if (compareDate(entry.expiryDate, usage.date) < 0) continue;
       if (compareDate(entry.date, usage.date) > 0) continue;
       const allocated = Math.min(entry.remainingMinutes, remainingUsage);
@@ -362,10 +401,11 @@ function renderUsageItem(usage, ledger) {
   const isInvalid = ledger.invalidUsageIds.includes(usage.id);
   const allocations = ledger.usageAllocations[usage.id] || [];
   const deductionText = allocations.length ? allocations.map((allocation) => `${allocation.attendanceRangeLabel}에서 ${formatDuration(allocation.minutes)}`).join(" / ") : "차감 내역 없음";
+  const detailColumns = "repeat(auto-fit, minmax(150px, 1fr))";
   item.className = `list-item ${isInvalid ? "warning" : ""}`.trim();
   item.innerHTML = `
     <div class="item-row"><div><div class="item-title">${usage.date} · ${WORK_TYPES[usage.workType].label}</div><div class="item-subtitle">${formatUsageRange(usage)}</div></div><div class="status-row"><span class="pill ${isInvalid ? "warning" : "info"}">${isInvalid ? "차감 불가" : "차감 완료"}</span></div></div>
-    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
+    <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(usage.selectedAttendanceDate)}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
     <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-usage" data-id="${usage.id}">수정</button><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${usage.id}">삭제</button></div>`;
   bindItemActions(item);
   return item;
@@ -435,6 +475,7 @@ function deleteAttendance(id) {
   if (!confirm("이 발생기록을 삭제할까요? 연결된 사용 차감 결과도 다시 계산됩니다.")) return;
   state.attendanceRecords = state.attendanceRecords.filter((item) => item.id !== id);
   saveState();
+  populateUsageAttendanceOptions();
   renderAll();
 }
 function startUsageEdit(id) {
@@ -442,6 +483,7 @@ function startUsageEdit(id) {
   if (!record) return;
   elements.usageId.value = record.id;
   elements.usageDate.value = record.date;
+  populateUsageAttendanceOptions(record.selectedAttendanceDate || "");
   elements.usageWorkType.value = record.workType;
   setUsageTimeControl("start", record.startTime);
   setUsageTimeControl("end", record.endTime);
@@ -482,6 +524,7 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
     });
     state.attendanceRecords = [...state.attendanceRecords, ...appendedRecords];
     saveAttendanceRecords();
+    populateUsageAttendanceOptions();
     rerenderAll();
     const appendedCount = appendedRecords.length;
     const finalSavedCount = state.attendanceRecords.length;
@@ -692,6 +735,7 @@ function seedDemoData() {
   });
   sampleUsage.forEach((record) => state.usageRecords.push(record));
   saveState();
+  populateUsageAttendanceOptions();
   renderAll();
 }
 function resetAllData() {
@@ -700,6 +744,7 @@ function resetAllData() {
   state.usageRecords = [];
   saveState();
   resetForms();
+  populateUsageAttendanceOptions();
   renderAll();
   elements.uploadResult.textContent = "";
 }
