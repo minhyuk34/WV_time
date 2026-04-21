@@ -115,6 +115,22 @@ button, input, select { font: inherit; }
   gap: 8px;
 }
 
+.time-range-field {
+  display: grid;
+  gap: 10px;
+}
+
+.time-range-field > span {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.time-range-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -385,5 +401,6 @@ input:focus, select:focus {
   }
 
   .form-grid, .detail-grid { grid-template-columns: 1fr; }
+  .time-range-grid { grid-template-columns: 1fr; }
   .summary-value { font-size: 28px; }
 }

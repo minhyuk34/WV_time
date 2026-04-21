@@ -379,7 +379,7 @@ function renderSummary() {
 }
 function renderAttendanceList() {
   const ledger = buildLedger();
-  const visibleEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0);
+  const visibleEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0);
   elements.attendanceCount.textContent = `${visibleEntries.length}건`;
   renderCollection(elements.attendanceList, visibleEntries.map(renderAttendanceItem));
 }

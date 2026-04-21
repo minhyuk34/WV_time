@@ -110,28 +110,33 @@
             <span>근무유형</span>
             <select id="usageWorkType" required></select>
           </label>
-          <label>
-            <span>사용 시작시간</span>
-            <div class="inline-field">
-              <select id="usageStartHour" aria-label="사용 시작 시" required></select>
-              <select id="usageStartMinute" aria-label="사용 시작 분" required>
-                <option value="00">00분</option>
-                <option value="30">30분</option>
-              </select>
+          <div class="full-width time-range-field">
+            <span>사용시간</span>
+            <div class="time-range-grid">
+              <label>
+                <span>시작시간</span>
+                <div class="inline-field">
+                  <select id="usageStartHour" aria-label="사용 시작 시" required></select>
+                  <select id="usageStartMinute" aria-label="사용 시작 분" required>
+                    <option value="00">00분</option>
+                    <option value="30">30분</option>
+                  </select>
+                </div>
+              </label>
+              <label>
+                <span>종료시간</span>
+                <div class="inline-field">
+                  <select id="usageEndHour" aria-label="사용 종료 시" required></select>
+                  <select id="usageEndMinute" aria-label="사용 종료 분" required>
+                    <option value="00">00분</option>
+                    <option value="30">30분</option>
+                  </select>
+                </div>
+              </label>
             </div>
             <input id="usageStart" type="hidden" required>
-          </label>
-          <label>
-            <span>사용 종료시간</span>
-            <div class="inline-field">
-              <select id="usageEndHour" aria-label="사용 종료 시" required></select>
-              <select id="usageEndMinute" aria-label="사용 종료 분" required>
-                <option value="00">00분</option>
-                <option value="30">30분</option>
-              </select>
-            </div>
             <input id="usageEnd" type="hidden" required>
-          </label>
+          </div>
           <div class="full-width computed-panel">
             <span>사용시간</span>
             <strong id="computedUsageLabel">0분</strong>
