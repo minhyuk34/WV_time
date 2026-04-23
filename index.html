@@ -102,10 +102,16 @@
             <span>날짜</span>
             <input id="usageDate" type="date" required>
           </label>
-          <label>
+          <div class="full-width stacked-field">
             <span>차감할 발생기록 날짜</span>
-            <select id="usageAttendanceDate"></select>
-          </label>
+            <div class="multi-select-grid">
+              <select id="usageAttendanceDate1"></select>
+              <select id="usageAttendanceDate2"></select>
+              <select id="usageAttendanceDate3"></select>
+              <select id="usageAttendanceDate4"></select>
+            </div>
+            <small id="selectedAttendanceSummary" class="helper-text">자동 선택(FIFO)</small>
+          </div>
           <label>
             <span>근무유형</span>
             <select id="usageWorkType" required></select>
@@ -140,6 +146,10 @@
           <div class="full-width computed-panel">
             <span>사용시간</span>
             <strong id="computedUsageLabel">0분</strong>
+          </div>
+          <div class="full-width computed-panel">
+            <span>선택 날짜 합산 가능시간</span>
+            <strong id="selectedAttendanceTotalLabel">0분</strong>
           </div>
           <div class="full-width form-actions">
             <button class="primary-btn" type="submit">사용기록 저장</button>
