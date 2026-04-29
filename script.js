@@ -1,6 +1,7 @@
 ﻿const STORAGE_KEY = "specificDayWorkManager_v1";
 const FLOOR_UNIT = 30;
 const MAX_DAILY_USAGE_MINUTES = 240;
+const USAGE_HISTORY_VISIBLE_DAYS = 3;
 const LUNCH_START_MINUTES = 12 * 60;
 const LUNCH_END_MINUTES = 13 * 60;
 const WORK_TYPES = {
@@ -50,10 +51,8 @@ const elements = {
   usageFormMode: document.getElementById("usageFormMode"),
   cancelUsageEditBtn: document.getElementById("cancelUsageEditBtn"),
   attendanceList: document.getElementById("attendanceList"),
-  usageList: document.getElementById("usageList"),
   timelineList: document.getElementById("timelineList"),
   attendanceCount: document.getElementById("attendanceCount"),
-  usageCount: document.getElementById("usageCount"),
   excelFile: document.getElementById("excelFile"),
   uploadBtn: document.getElementById("uploadBtn"),
   uploadResult: document.getElementById("uploadResult"),
@@ -87,17 +86,17 @@ function populateUsageTimeSelects() {
   elements.usageStartMinute.value = "00";
   elements.usageEndMinute.value = "00";
 }
-function populateUsageAttendanceOptions(selectedDates = getSelectedAttendanceDatesFromForm()) {
+function populateUsageAttendanceOptions(selectedIds = getSelectedAttendanceIdsFromForm()) {
   const usageDate = elements.usageDate.value;
   const options = ['<option value="">자동 선택(FIFO)</option>'];
   getSelectableAttendanceEntries(usageDate).forEach((entry) => {
-    options.push(`<option value="${entry.date}">${formatSelectableAttendanceLabel(entry)}</option>`);
+    options.push(`<option value="${entry.id}">${formatSelectableAttendanceLabel(entry)}</option>`);
   });
   getUsageAttendanceSelectElements().forEach((select, index) => {
     select.innerHTML = options.join("");
-    const selectedDate = selectedDates[index] || "";
-    const selectedOptionExists = Array.from(select.options).some((option) => option.value === selectedDate);
-    select.value = selectedOptionExists ? selectedDate : "";
+    const selectedId = selectedIds[index] || "";
+    const selectedOptionExists = Array.from(select.options).some((option) => option.value === selectedId);
+    select.value = selectedOptionExists ? selectedId : "";
   });
   renderSelectedAttendanceSummary();
 }
@@ -198,7 +197,6 @@ function renderAll() {
   renderUsagePreview();
   renderSummary();
   renderAttendanceList();
-  renderUsageList();
   renderTimelineList();
 }
 function getSelectableAttendanceEntries(usageDate = "") {
@@ -211,20 +209,15 @@ function getSelectableAttendanceEntries(usageDate = "") {
 }
 function formatSelectableAttendanceLabel(entry) {
   const schedule = WORK_TYPES[resolveWorkTypeKey(entry.workType)];
-  return `${entry.date} · ${schedule.label} · 사용 ${formatDuration(entry.usedMinutes)} / 잔여 ${formatDuration(entry.remainingMinutes)}`;
+  return `${entry.date} · ${schedule.label} · ${entry.segmentLabel} · 사용 ${formatDuration(entry.usedMinutes)} / 잔여 ${formatDuration(entry.remainingMinutes)}`;
 }
-function getSelectedAttendanceLabel(selectedAttendanceDates) {
-  const dates = normalizeSelectedAttendanceDates(selectedAttendanceDates);
-  if (!dates.length) return "자동 선택(FIFO)";
-  return dates.map((selectedAttendanceDate) => {
-    const record = state.attendanceRecords.find((item) => item.date === selectedAttendanceDate);
-    if (!record) return `${selectedAttendanceDate} · 삭제된 기록`;
-    const entry = buildLedger().generatedEntries.find((item) => item.date === selectedAttendanceDate);
-    if (!entry) {
-      const generatedMinutes = record.generatedMinutes ?? calculateGeneratedMinutes(record);
-      return `${record.date} · ${WORK_TYPES[resolveWorkTypeKey(record.workType)].label} · 사용 0분 / 잔여 ${formatDuration(generatedMinutes)}`;
-    }
-    return formatSelectableAttendanceLabel(entry);
+function getSelectedAttendanceLabel(selectedAttendanceIds) {
+  const selectedIds = normalizeSelectedAttendanceIds(selectedAttendanceIds);
+  if (!selectedIds.length) return "자동 선택(FIFO)";
+  const ledger = buildLedger();
+  return resolveSelectedAttendanceEntries(selectedIds, ledger.generatedEntries).map((entryOrToken) => {
+    if (typeof entryOrToken === "string") return `${entryOrToken} · 삭제된 기록`;
+    return formatSelectableAttendanceLabel(entryOrToken);
   }).join(" / ");
 }
 function handleAttendanceSubmit(event) {
@@ -261,8 +254,8 @@ function handleUsageSubmit(event) {
   const normalizedEndTime = normalizeUsageTimeInput(elements.usageEnd.value);
   setUsageTimeControl("start", normalizedStartTime);
   setUsageTimeControl("end", normalizedEndTime);
-  const selectedAttendanceDates = getSelectedAttendanceDatesFromForm();
-  const record = { id: elements.usageId.value || createId("usage"), date: elements.usageDate.value, workType: elements.usageWorkType.value, startTime: normalizedStartTime, endTime: normalizedEndTime, selectedAttendanceDates };
+  const selectedAttendanceIds = getSelectedAttendanceIdsFromForm();
+  const record = { id: elements.usageId.value || createId("usage"), date: elements.usageDate.value, workType: elements.usageWorkType.value, startTime: normalizedStartTime, endTime: normalizedEndTime, selectedAttendanceIds };
   const validationMessage = validateUsageRecord(record);
   if (validationMessage) return alert(validationMessage);
   const durationMinutes = calculateUsageMinutes(record.startTime, record.endTime);
@@ -285,12 +278,13 @@ function validateAttendanceRecord(record) {
 function validateUsageRecord(record) {
   if (!record.date || !record.workType || !record.startTime || !record.endTime) return "사용기록의 모든 필드를 입력하세요.";
   if (toMinutes(record.endTime) <= toMinutes(record.startTime)) return "사용 종료시간은 시작시간보다 늦어야 합니다.";
-  const selectedAttendanceDates = normalizeSelectedAttendanceDates(record.selectedAttendanceDates);
-  if (selectedAttendanceDates.length > 4) return "차감할 발생기록 날짜는 최대 4개까지 선택할 수 있습니다.";
-  if (new Set(selectedAttendanceDates).size !== selectedAttendanceDates.length) return "같은 발생기록 날짜를 중복 선택할 수 없습니다.";
-  for (const selectedAttendanceDate of selectedAttendanceDates) {
-    if (compareDate(selectedAttendanceDate, record.date) > 0) return "사용일보다 미래의 발생기록은 선택할 수 없습니다.";
-    if (!state.attendanceRecords.some((item) => item.date === selectedAttendanceDate)) return "선택한 발생기록 날짜를 찾을 수 없습니다.";
+  const selectedAttendanceIds = normalizeSelectedAttendanceIds(record.selectedAttendanceIds ?? record.selectedAttendanceDates);
+  if (selectedAttendanceIds.length > 4) return "차감할 발생기록은 최대 4건까지 선택할 수 있습니다.";
+  if (new Set(selectedAttendanceIds).size !== selectedAttendanceIds.length) return "같은 발생기록을 중복 선택할 수 없습니다.";
+  const resolvedEntries = resolveSelectedAttendanceEntries(selectedAttendanceIds, buildLedger().generatedEntries);
+  for (const resolvedEntry of resolvedEntries) {
+    if (typeof resolvedEntry === "string") return "선택한 발생기록을 찾을 수 없습니다.";
+    if (compareDate(resolvedEntry.date, record.date) > 0) return "사용일보다 미래의 발생기록은 선택할 수 없습니다.";
   }
   return "";
 }
@@ -329,10 +323,10 @@ function buildGeneratedTimeRanges(record) {
   const actualEnd = record.actualEnd ? toMinutes(record.actualEnd) : scheduledEnd;
   const ranges = [];
   const earlyEarned = floorToUnit(Math.max(0, scheduledStart - actualStart), FLOOR_UNIT);
-  if (earlyEarned > 0) ranges.push({ start: scheduledStart - earlyEarned, end: scheduledStart, minutes: earlyEarned });
+  if (earlyEarned > 0) ranges.push({ start: scheduledStart - earlyEarned, end: scheduledStart, minutes: earlyEarned, segmentType: "early", segmentLabel: "출근 전" });
   const lateBase = Boolean(record.overtime ?? record.overtimeChecked) ? scheduledEnd + 150 : scheduledEnd;
   const lateEarned = floorToUnit(Math.max(0, actualEnd - lateBase), FLOOR_UNIT);
-  if (lateEarned > 0) ranges.push({ start: lateBase, end: lateBase + lateEarned, minutes: lateEarned });
+  if (lateEarned > 0) ranges.push({ start: lateBase, end: lateBase + lateEarned, minutes: lateEarned, segmentType: "late", segmentLabel: "퇴근 후" });
   return ranges;
 }
 function calculateUsageMinutes(startTime, endTime) {
@@ -345,23 +339,35 @@ function buildLedger(options = {}) {
   const filteredUsageRecords = options.excludeUsageId ? sourceUsageRecords.filter((item) => item.id !== options.excludeUsageId) : sourceUsageRecords;
   const usageRecords = cloneRecords(filteredUsageRecords)
     .map((item) => {
-      const normalizedSelection = normalizeSelectedAttendanceDates(item.selectedAttendanceDates ?? item.selectedAttendanceDate);
-      return { ...item, selectedAttendanceDates: normalizedSelection, startTime: normalizeUsageTimeInput(item.startTime), endTime: normalizeUsageTimeInput(item.endTime), durationMinutes: item.durationMinutes ?? calculateUsageMinutes(item.startTime, item.endTime) };
+      const normalizedSelection = normalizeSelectedAttendanceIds(item.selectedAttendanceIds ?? item.selectedAttendanceDates ?? item.selectedAttendanceDate);
+      return { ...item, selectedAttendanceIds: normalizedSelection, startTime: normalizeUsageTimeInput(item.startTime), endTime: normalizeUsageTimeInput(item.endTime), durationMinutes: item.durationMinutes ?? calculateUsageMinutes(item.startTime, item.endTime) };
     })
     .sort(sortByDateThenId);
-  const generatedEntries = attendanceRecords.map((record) => {
+  const generatedEntries = attendanceRecords.flatMap((record) => {
     const generatedRanges = buildGeneratedTimeRanges(record);
-    const earnedMinutes = generatedRanges.reduce((sum, range) => sum + range.minutes, 0);
-    return { ...record, earnedMinutes, generatedRanges, remainingRangeBuckets: generatedRanges.map((range) => ({ ...range })), expiryDate: addDays(record.date, 30), usedMinutes: 0, remainingMinutes: earnedMinutes, allocations: [] };
+    return generatedRanges.map((range, index) => ({
+      ...record,
+      id: `${record.id}__${range.segmentType || index}`,
+      sourceAttendanceId: record.id,
+      earnedMinutes: range.minutes,
+      segmentType: range.segmentType || `segment-${index + 1}`,
+      segmentLabel: range.segmentLabel || `구간 ${index + 1}`,
+      generatedRanges: [range],
+      remainingRangeBuckets: [{ ...range }],
+      expiryDate: addDays(record.date, 30),
+      usedMinutes: 0,
+      remainingMinutes: range.minutes,
+      allocations: []
+    }));
   });
   const invalidUsageIds = [];
   const usageAllocations = {};
   for (const usage of usageRecords) {
     let remainingUsage = usage.durationMinutes;
     const allocations = [];
-    const selectedAttendanceDates = normalizeSelectedAttendanceDates(usage.selectedAttendanceDates);
-    const selectableEntries = selectedAttendanceDates.length
-      ? selectedAttendanceDates.map((date) => generatedEntries.find((entry) => entry.date === date)).filter(Boolean)
+    const selectedAttendanceIds = normalizeSelectedAttendanceIds(usage.selectedAttendanceIds);
+    const selectableEntries = selectedAttendanceIds.length
+      ? resolveSelectedAttendanceEntries(selectedAttendanceIds, generatedEntries).filter((entry) => typeof entry !== "string")
       : generatedEntries;
     for (const entry of selectableEntries) {
       if (remainingUsage <= 0) break;
@@ -374,7 +380,7 @@ function buildLedger(options = {}) {
       entry.remainingMinutes -= allocated;
       remainingUsage -= allocated;
       const attendanceRangeLabel = allocateFromGeneratedRanges(entry, allocated);
-      allocations.push({ attendanceId: entry.id, attendanceDate: entry.date, attendanceRangeLabel, usageId: usage.id, usageDate: usage.date, usageStart: usage.startTime, usageEnd: usage.endTime, minutes: allocated });
+      allocations.push({ attendanceId: entry.id, attendanceDate: entry.date, attendanceRangeLabel, usageId: usage.id, usageDate: usage.date, usageStart: usage.startTime, usageEnd: usage.endTime, minutes: allocated, attendanceSegmentLabel: entry.segmentLabel });
       entry.allocations.push({ usageId: usage.id, usageDate: usage.date, usageStart: usage.startTime, usageEnd: usage.endTime, minutes: allocated });
     }
     if (remainingUsage > 0) {
@@ -411,11 +417,6 @@ function renderAttendanceList() {
   elements.attendanceCount.textContent = `${visibleEntries.length}건`;
   renderCollection(elements.attendanceList, visibleEntries.map(renderAttendanceItem));
 }
-function renderUsageList() {
-  const ledger = buildLedger();
-  elements.usageCount.textContent = `${ledger.usageRecords.length}건`;
-  renderCollection(elements.usageList, ledger.usageRecords.map((usage) => renderUsageItem(usage, ledger)));
-}
 function renderTimelineList() {
   const ledger = buildLedger();
   const rows = buildLedgerRows(ledger);
@@ -431,12 +432,15 @@ function renderAttendanceItem(entry) {
   const status = getEntryStatus(entry);
   const schedule = WORK_TYPES[resolveWorkTypeKey(entry.workType)];
   const overtimeChecked = Boolean(entry.overtime ?? entry.overtimeChecked);
-  const usedDetails = entry.allocations.length ? entry.allocations.map((allocation) => formatUsageRange({ date: allocation.usageDate, startTime: allocation.usageStart, endTime: allocation.usageEnd }, allocation.minutes)).join(" / ") : "아직 사용되지 않음";
+  const visibleAllocations = entry.allocations.filter((allocation) => isUsageHistoryVisible(allocation.usageDate));
+  const usedDetails = visibleAllocations.length
+    ? visibleAllocations.map((allocation) => formatUsageRange({ date: allocation.usageDate, startTime: allocation.usageStart, endTime: allocation.usageEnd }, allocation.minutes)).join(" / ")
+    : (entry.allocations.length ? "표시 기간 종료" : "아직 사용되지 않음");
   item.className = `list-item ${status.className}`.trim();
   item.innerHTML = `
-    <div class="item-row"><div><div class="item-title">${entry.date} · ${schedule.label}</div><div class="item-subtitle">실제 ${entry.actualStart || "--:--"} ~ ${entry.actualEnd || "--:--"} · <label class="checkbox-field"><input type="checkbox" data-action="toggle-overtime" data-id="${entry.id}" ${overtimeChecked ? "checked" : ""}><span>시간외근무</span></label></div></div><div class="status-row"><span class="pill ${status.pillClass}">${status.label}</span><span class="pill neutral">만료 ${entry.expiryDate}</span></div></div>
+    <div class="item-row"><div><div class="item-title">${entry.date} · ${schedule.label} · ${entry.segmentLabel}</div><div class="item-subtitle">실제 ${entry.actualStart || "--:--"} ~ ${entry.actualEnd || "--:--"} · <label class="checkbox-field"><input type="checkbox" data-action="toggle-overtime" data-id="${entry.sourceAttendanceId}" ${overtimeChecked ? "checked" : ""}><span>시간외근무</span></label></div></div><div class="status-row"><span class="pill ${status.pillClass}">${status.label}</span><span class="pill neutral">만료 ${entry.expiryDate}</span></div></div>
     <div class="detail-grid"><div class="detail-box"><span>발생내역</span><strong>${formatGeneratedRanges(entry)}</strong></div><div class="detail-box"><span>발생시간</span><strong>${formatDuration(entry.earnedMinutes)}</strong></div><div class="detail-box"><span>남은시간</span><strong>${formatDuration(entry.remainingMinutes)}</strong></div><div class="detail-box"><span>차감 내역</span><strong>${usedDetails}</strong></div></div>
-    <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-attendance" data-id="${entry.id}">수정</button><button class="mini-btn danger" type="button" data-action="delete-attendance" data-id="${entry.id}">삭제</button></div>`;
+    <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-attendance" data-id="${entry.sourceAttendanceId}">수정</button><button class="mini-btn danger" type="button" data-action="delete-attendance" data-id="${entry.sourceAttendanceId}">삭제</button></div>`;
   bindItemActions(item);
   return item;
 }
@@ -449,15 +453,15 @@ function renderUsageItem(usage, ledger) {
   item.className = `list-item ${isInvalid ? "warning" : ""}`.trim();
   item.innerHTML = `
     <div class="item-row"><div><div class="item-title">${usage.date} · ${WORK_TYPES[usage.workType].label}</div><div class="item-subtitle">${formatUsageRange(usage)}</div></div><div class="status-row"><span class="pill ${isInvalid ? "warning" : "info"}">${isInvalid ? "차감 불가" : "차감 완료"}</span></div></div>
-    <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(usage.selectedAttendanceDates)}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
+    <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(usage.selectedAttendanceIds)}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
     <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-usage" data-id="${usage.id}">수정</button><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${usage.id}">삭제</button></div>`;
   bindItemActions(item);
   return item;
 }
 function buildLedgerRows(ledger) {
   const rows = [];
-  ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length).forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [formatGeneratedRanges(entry)], flowLabel: "적립", minutes: entry.earnedMinutes }));
-  ledger.usageRecords.forEach((usage) => {
+  ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length).forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`], flowLabel: "적립", minutes: entry.earnedMinutes }));
+  ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
     const allocations = ledger.usageAllocations[usage.id] || [];
     if (!allocations.length) return;
     rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: usage.durationMinutes });
@@ -527,7 +531,7 @@ function startUsageEdit(id) {
   if (!record) return;
   elements.usageId.value = record.id;
   elements.usageDate.value = record.date;
-  populateUsageAttendanceOptions(normalizeSelectedAttendanceDates(record.selectedAttendanceDates ?? record.selectedAttendanceDate));
+  populateUsageAttendanceOptions(normalizeSelectedAttendanceIds(record.selectedAttendanceIds ?? record.selectedAttendanceDates ?? record.selectedAttendanceDate));
   elements.usageWorkType.value = record.workType;
   setUsageTimeControl("start", record.startTime);
   setUsageTimeControl("end", record.endTime);
@@ -785,13 +789,13 @@ function seedDemoData() {
 function getUsageAttendanceSelectElements() {
   return [elements.usageAttendanceDate1, elements.usageAttendanceDate2, elements.usageAttendanceDate3, elements.usageAttendanceDate4];
 }
-function normalizeSelectedAttendanceDates(value) {
+function normalizeSelectedAttendanceIds(value) {
   if (!value) return [];
   const rawValues = Array.isArray(value) ? value : [value];
   return rawValues.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 4);
 }
-function getSelectedAttendanceDatesFromForm() {
-  return normalizeSelectedAttendanceDates(getUsageAttendanceSelectElements().map((select) => select.value));
+function getSelectedAttendanceIdsFromForm() {
+  return normalizeSelectedAttendanceIds(getUsageAttendanceSelectElements().map((select) => select.value));
 }
 function normalizeUsageAttendanceSelects(changedSelect) {
   if (!changedSelect.value) return;
@@ -802,17 +806,40 @@ function normalizeUsageAttendanceSelects(changedSelect) {
 }
 function renderSelectedAttendanceSummary() {
   const usageDate = elements.usageDate.value;
-  const selectedDates = getSelectedAttendanceDatesFromForm();
-  if (!selectedDates.length) {
+  const selectedIds = getSelectedAttendanceIdsFromForm();
+  if (!selectedIds.length) {
     elements.selectedAttendanceSummary.textContent = "자동 선택(FIFO)";
     elements.selectedAttendanceTotalLabel.textContent = "0분";
     return;
   }
   const availableEntries = getSelectableAttendanceEntries(usageDate);
-  const selectedEntries = selectedDates.map((date) => availableEntries.find((entry) => entry.date === date)).filter(Boolean);
+  const selectedEntries = resolveSelectedAttendanceEntries(selectedIds, availableEntries).filter((entry) => typeof entry !== "string");
   const totalMinutes = selectedEntries.reduce((sum, entry) => sum + entry.remainingMinutes, 0);
-  elements.selectedAttendanceSummary.textContent = `선택 ${selectedDates.length}건: ${selectedDates.join(", ")}`;
+  elements.selectedAttendanceSummary.textContent = `선택 ${selectedEntries.length}건: ${selectedEntries.map((entry) => `${entry.date} ${entry.segmentLabel}`).join(", ")}`;
   elements.selectedAttendanceTotalLabel.textContent = formatDuration(totalMinutes);
+}
+function resolveSelectedAttendanceEntries(selectedIds, generatedEntries) {
+  const resolved = [];
+  const usedEntryIds = new Set();
+  normalizeSelectedAttendanceIds(selectedIds).forEach((selectedId) => {
+    const exactEntry = generatedEntries.find((entry) => entry.id === selectedId);
+    if (exactEntry && !usedEntryIds.has(exactEntry.id)) {
+      resolved.push(exactEntry);
+      usedEntryIds.add(exactEntry.id);
+      return;
+    }
+    const legacyEntry = generatedEntries.find((entry) => entry.date === selectedId && !usedEntryIds.has(entry.id));
+    if (legacyEntry) {
+      resolved.push(legacyEntry);
+      usedEntryIds.add(legacyEntry.id);
+      return;
+    }
+    resolved.push(selectedId);
+  });
+  return resolved;
+}
+function isUsageHistoryVisible(usageDate, referenceDate = getTodayString()) {
+  return compareDate(referenceDate, addDays(usageDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
 }
 function resetAllData() {
   if (!confirm("모든 localStorage 데이터를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
