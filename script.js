@@ -491,8 +491,15 @@ function buildLedgerRows(ledger) {
   const today = getTodayString();
   const rows = [];
   ledger.generatedEntries
-    .filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length && !isEntryExpired(entry, today))
-    .forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`], flowLabel: "적립", minutes: entry.earnedMinutes }));
+    .filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0 && !isEntryExpired(entry, today))
+    .forEach((entry) => rows.push({
+      type: entry.allocations.length ? "잔여" : "미사용",
+      usageId: `remaining_${entry.id}`,
+      usageLabel: entry.allocations.length ? "일부 사용 후 잔여" : "미사용",
+      attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`],
+      flowLabel: entry.allocations.length ? "잔여" : "적립",
+      minutes: entry.remainingMinutes
+    }));
   ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
     const allocations = (ledger.usageAllocations[usage.id] || []).filter((allocation) => !isExpiredAttendanceDate(allocation.attendanceDate, today));
     if (!allocations.length) return;
@@ -504,11 +511,12 @@ function buildLedgerRows(ledger) {
 function renderTimelineItem(row) {
   const item = document.createElement("article");
   const actionHtml = row.canDelete
-    ? `<div class="item-actions"><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${row.usageId}">삭제</button></div>`
-    : "";
+  ? `<div class="item-actions"><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${row.usageId}">삭제</button></div>`
+  : "";
+  const flowPillClass = row.flowLabel === "차감" ? "warning" : "info";
   item.className = "list-item";
   item.innerHTML = `
-    <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">사용기록 1건 기준 연결 내역</div></div><span class="pill ${row.flowLabel === "적립" ? "info" : "warning"}">${row.flowLabel}</span></div>
+    <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">사용기록 1건 기준 연결 내역</div></div><span class="pill ${flowPillClass}">${row.flowLabel}</span></div>
     <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>차감시간</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
     ${actionHtml}`;
   bindItemActions(item);
