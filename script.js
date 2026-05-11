@@ -495,16 +495,17 @@ function buildLedgerRows(ledger) {
     .forEach((entry) => rows.push({
       type: entry.allocations.length ? "잔여" : "미사용",
       usageId: `remaining_${entry.id}`,
-      usageLabel: entry.allocations.length ? "일부 사용 후 잔여" : "미사용",
-      attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`],
+      usageLabel: entry.allocations.length ? `${entry.date} 발생분 잔여` : `${entry.date} 발생분 미사용`,
+      attendanceItems: [entry.allocations.length ? formatRemainingRanges(entry) : `${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`],
       flowLabel: entry.allocations.length ? "잔여" : "적립",
-      minutes: entry.remainingMinutes
+      minutes: entry.remainingMinutes,
+      subtitle: entry.allocations.length ? "사용 후 남아 있는 특정일 시간" : "아직 사용되지 않은 특정일 시간"
     }));
   ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
     const allocations = (ledger.usageAllocations[usage.id] || []).filter((allocation) => !isExpiredAttendanceDate(allocation.attendanceDate, today));
     if (!allocations.length) return;
     const visibleMinutes = allocations.reduce((sum, allocation) => sum + allocation.minutes, 0);
-    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: visibleMinutes, canDelete: true });
+    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: visibleMinutes, canDelete: true, subtitle: "사용기록 1건 기준 연결 내역" });
   });
   return groupLedgerRowsByUsage(rows);
 }
@@ -514,10 +515,11 @@ function renderTimelineItem(row) {
   ? `<div class="item-actions"><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${row.usageId}">삭제</button></div>`
   : "";
   const flowPillClass = row.flowLabel === "차감" ? "warning" : "info";
+  const amountLabel = row.flowLabel === "차감" ? "차감시간" : "남은시간";
   item.className = "list-item";
   item.innerHTML = `
-    <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">사용기록 1건 기준 연결 내역</div></div><span class="pill ${flowPillClass}">${row.flowLabel}</span></div>
-    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>차감시간</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
+    <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">${row.subtitle || "사용기록 1건 기준 연결 내역"}</div></div><span class="pill ${flowPillClass}">${row.flowLabel}</span></div>
+    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>${amountLabel}</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
     ${actionHtml}`;
   bindItemActions(item);
   return item;
@@ -777,6 +779,11 @@ function formatUsageRange(usageRecord, minutes = null) {
   const endLabel = normalized ? formatTime(normalized.end) : usageRecord.endTime;
   const duration = minutes ?? usageRecord.durationMinutes ?? (normalized ? calculateUsageMinutesExcludingLunch(normalized.start, normalized.end) : 0);
   return `${formatShortDate(usageRecord.date)} ${startLabel}~${endLabel}(${formatDuration(duration)})`;
+}
+function formatRemainingRanges(entry) {
+  const buckets = (entry.remainingRangeBuckets || []).filter((bucket) => bucket.end > bucket.start);
+  if (!buckets.length) return `${entry.segmentLabel} · 잔여 없음`;
+  return buckets.map((bucket) => `${entry.segmentLabel} · ${formatShortDate(entry.date)} ${formatTime(bucket.start)}~${formatTime(bucket.end)}(${formatDuration(bucket.end - bucket.start)})`).join(", ");
 }
 function allocateFromGeneratedRanges(entry, minutesToAllocate) {
   const labels = [];
