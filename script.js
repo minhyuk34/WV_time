@@ -345,6 +345,22 @@ function buildLedger(options = {}) {
     .sort(sortByDateThenId);
   const generatedEntries = attendanceRecords.flatMap((record) => {
     const generatedRanges = buildGeneratedTimeRanges(record);
+    if (!generatedRanges.length) {
+      return [{
+        ...record,
+        id: `${record.id}__empty`,
+        sourceAttendanceId: record.id,
+        earnedMinutes: 0,
+        segmentType: "empty",
+        segmentLabel: "발생 없음",
+        generatedRanges: [],
+        remainingRangeBuckets: [],
+        expiryDate: addDays(record.date, 30),
+        usedMinutes: 0,
+        remainingMinutes: 0,
+        allocations: []
+      }];
+    }
     return generatedRanges.map((range, index) => ({
       ...record,
       id: `${record.id}__${range.segmentType || index}`,
@@ -413,7 +429,7 @@ function renderSummary() {
 }
 function renderAttendanceList() {
   const ledger = buildLedger();
-  const visibleEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && shouldShowAttendanceEntry(entry));
+  const visibleEntries = ledger.generatedEntries.filter((entry) => shouldShowAttendanceEntry(entry));
   elements.attendanceCount.textContent = `${visibleEntries.length}건`;
   renderCollection(elements.attendanceList, visibleEntries.map(renderAttendanceItem));
 }
@@ -438,9 +454,9 @@ function renderAttendanceItem(entry) {
     : (entry.allocations.length ? "표시 기간 종료" : "아직 사용되지 않음");
   item.className = `list-item ${status.className}`.trim();
   item.innerHTML = `
-    <div class="item-row"><div><div class="item-title">${entry.date} · ${schedule.label} · ${entry.segmentLabel}</div><div class="item-subtitle">실제 ${entry.actualStart || "--:--"} ~ ${entry.actualEnd || "--:--"} · <label class="checkbox-field"><input type="checkbox" data-action="toggle-overtime" data-id="${entry.sourceAttendanceId}" ${overtimeChecked ? "checked" : ""}><span>시간외근무</span></label></div></div><div class="status-row"><span class="pill ${status.pillClass}">${status.label}</span><span class="pill neutral">만료 ${entry.expiryDate}</span></div></div>
+    <div class="item-row"><div><div class="item-title">${entry.date} · ${schedule.label} · ${entry.segmentLabel}</div><div class="item-subtitle">실제 ${entry.actualStart || "--:--"} ~ ${entry.actualEnd || "--:--"} · <label class="checkbox-field"><input type="checkbox" data-role="overtime-checkbox" data-id="${entry.sourceAttendanceId}" ${overtimeChecked ? "checked" : ""}><span>시간외근무</span></label></div></div><div class="status-row"><span class="pill ${status.pillClass}">${status.label}</span><span class="pill neutral">만료 ${entry.expiryDate}</span></div></div>
     <div class="detail-grid"><div class="detail-box"><span>발생내역</span><strong>${formatGeneratedRanges(entry)}</strong></div><div class="detail-box"><span>발생시간</span><strong>${formatDuration(entry.earnedMinutes)}</strong></div><div class="detail-box"><span>남은시간</span><strong>${formatDuration(entry.remainingMinutes)}</strong></div><div class="detail-box"><span>차감 내역</span><strong>${usedDetails}</strong></div></div>
-    <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-attendance" data-id="${entry.sourceAttendanceId}">수정</button><button class="mini-btn danger" type="button" data-action="delete-attendance" data-id="${entry.sourceAttendanceId}">삭제</button></div>`;
+    <div class="item-actions"><button class="mini-btn" type="button" data-action="save-overtime" data-id="${entry.sourceAttendanceId}">시간외근무 저장</button><button class="mini-btn" type="button" data-action="edit-attendance" data-id="${entry.sourceAttendanceId}">수정</button><button class="mini-btn danger" type="button" data-action="delete-attendance" data-id="${entry.sourceAttendanceId}">삭제</button></div>`;
   bindItemActions(item);
   return item;
 }
@@ -485,28 +501,23 @@ function bindItemActions(container) {
   container.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
     const action = button.dataset.action;
     const id = button.dataset.id;
-    if (action === "toggle-overtime") return;
+    if (action === "save-overtime") {
+      const checkbox = container.querySelector(`[data-role="overtime-checkbox"][data-id="${id}"]`);
+      return saveOvertimeFromList(id, Boolean(checkbox?.checked));
+    }
     if (action === "edit-attendance") startAttendanceEdit(id);
     if (action === "delete-attendance") deleteAttendance(id);
     if (action === "edit-usage") startUsageEdit(id);
     if (action === "delete-usage") deleteUsage(id);
   }));
-  container.querySelectorAll('[data-action="toggle-overtime"]').forEach((checkbox) => checkbox.addEventListener("change", (event) => {
-    toggleOvertimeFromList(event.target.dataset.id, event.target.checked);
-  }));
 }
-function toggleOvertimeFromList(recordId, checked) {
+function saveOvertimeFromList(recordId, checked) {
   const recordIndex = state.attendanceRecords.findIndex((item) => item.id === recordId);
   if (recordIndex < 0) return;
   const updatedRecord = { ...state.attendanceRecords[recordIndex], overtime: checked, overtimeChecked: checked };
   const generatedMinutes = calculateGeneratedMinutes(updatedRecord);
-  if (generatedMinutes <= 0) {
-    state.attendanceRecords.splice(recordIndex, 1);
-    if (elements.attendanceId.value === recordId) resetAttendanceForm();
-  } else {
-    state.attendanceRecords.splice(recordIndex, 1, { ...updatedRecord, generatedMinutes });
-    if (elements.attendanceId.value === recordId) elements.overtimeChecked.checked = checked;
-  }
+  state.attendanceRecords.splice(recordIndex, 1, { ...updatedRecord, generatedMinutes });
+  if (elements.attendanceId.value === recordId) elements.overtimeChecked.checked = checked;
   saveAttendanceRecords();
   rerenderAll();
 }
