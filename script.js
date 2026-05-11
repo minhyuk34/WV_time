@@ -212,7 +212,7 @@ function formatSelectableAttendanceLabel(entry) {
   return `${entry.date} · ${schedule.label} · ${entry.segmentLabel} · 사용 ${formatDuration(entry.usedMinutes)} / 잔여 ${formatDuration(entry.remainingMinutes)}`;
 }
 function getSelectedAttendanceLabel(selectedAttendanceIds) {
-  const selectedIds = normalizeSelectedAttendanceIds(selectedAttendanceIds);
+  const selectedIds = normalizeAttendanceIds(selectedAttendanceIds, Infinity);
   if (!selectedIds.length) return "자동 선택(FIFO)";
   const ledger = buildLedger();
   return resolveSelectedAttendanceEntries(selectedIds, ledger.generatedEntries).map((entryOrToken) => {
@@ -222,6 +222,7 @@ function getSelectedAttendanceLabel(selectedAttendanceIds) {
 }
 function handleAttendanceSubmit(event) {
   event.preventDefault();
+  freezeAutoUsageSelections();
   const record = { id: elements.attendanceId.value || createId("attendance"), date: elements.attendanceDate.value, workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked, source: "manual" };
   const validationMessage = validateAttendanceRecord(record);
   if (validationMessage) return alert(validationMessage);
@@ -262,9 +263,12 @@ function handleUsageSubmit(event) {
   if (durationMinutes <= 0) return alert("사용시간이 0분입니다. 30분 단위 기준으로 다시 입력하세요.");
   const simulation = buildLedger({ usageRecordOverride: { ...record, durationMinutes } });
   if (simulation.invalidUsageIds.includes(record.id)) return alert("사용 가능한 특정일 시간이 부족합니다. 유효한 발생시간 범위를 확인하세요.");
+  const lockedAttendanceIds = selectedAttendanceIds.length
+    ? []
+    : getAllocationAttendanceIds(simulation.usageAllocations[record.id] || []);
   const existingIndex = state.usageRecords.findIndex((item) => item.id === record.id);
-  if (existingIndex >= 0) state.usageRecords.splice(existingIndex, 1, { ...record, durationMinutes });
-  else state.usageRecords.push({ ...record, durationMinutes });
+  if (existingIndex >= 0) state.usageRecords.splice(existingIndex, 1, { ...record, durationMinutes, lockedAttendanceIds });
+  else state.usageRecords.push({ ...record, durationMinutes, lockedAttendanceIds });
   saveState();
   resetUsageForm();
   populateUsageAttendanceOptions();
@@ -340,7 +344,14 @@ function buildLedger(options = {}) {
   const usageRecords = cloneRecords(filteredUsageRecords)
     .map((item) => {
       const normalizedSelection = normalizeSelectedAttendanceIds(item.selectedAttendanceIds ?? item.selectedAttendanceDates ?? item.selectedAttendanceDate);
-      return { ...item, selectedAttendanceIds: normalizedSelection, startTime: normalizeUsageTimeInput(item.startTime), endTime: normalizeUsageTimeInput(item.endTime), durationMinutes: item.durationMinutes ?? calculateUsageMinutes(item.startTime, item.endTime) };
+      return {
+        ...item,
+        selectedAttendanceIds: normalizedSelection,
+        lockedAttendanceIds: normalizeAttendanceIds(item.lockedAttendanceIds, Infinity),
+        startTime: normalizeUsageTimeInput(item.startTime),
+        endTime: normalizeUsageTimeInput(item.endTime),
+        durationMinutes: item.durationMinutes ?? calculateUsageMinutes(item.startTime, item.endTime)
+      };
     })
     .sort(sortByDateThenId);
   const generatedEntries = attendanceRecords.flatMap((record) => {
@@ -382,8 +393,10 @@ function buildLedger(options = {}) {
     let remainingUsage = usage.durationMinutes;
     const allocations = [];
     const selectedAttendanceIds = normalizeSelectedAttendanceIds(usage.selectedAttendanceIds);
-    const selectableEntries = selectedAttendanceIds.length
-      ? resolveSelectedAttendanceEntries(selectedAttendanceIds, generatedEntries).filter((entry) => typeof entry !== "string")
+    const lockedAttendanceIds = normalizeAttendanceIds(usage.lockedAttendanceIds, Infinity);
+    const effectiveAttendanceIds = selectedAttendanceIds.length ? selectedAttendanceIds : lockedAttendanceIds;
+    const selectableEntries = effectiveAttendanceIds.length
+      ? resolveSelectedAttendanceEntries(effectiveAttendanceIds, generatedEntries).filter((entry) => typeof entry !== "string")
       : generatedEntries;
     for (const entry of selectableEntries) {
       if (remainingUsage <= 0) break;
@@ -469,7 +482,7 @@ function renderUsageItem(usage, ledger) {
   item.className = `list-item ${isInvalid ? "warning" : ""}`.trim();
   item.innerHTML = `
     <div class="item-row"><div><div class="item-title">${usage.date} · ${WORK_TYPES[usage.workType].label}</div><div class="item-subtitle">${formatUsageRange(usage)}</div></div><div class="status-row"><span class="pill ${isInvalid ? "warning" : "info"}">${isInvalid ? "차감 불가" : "차감 완료"}</span></div></div>
-    <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(usage.selectedAttendanceIds)}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
+    <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(getEffectiveUsageAttendanceIds(usage))}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
     <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-usage" data-id="${usage.id}">수정</button><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${usage.id}">삭제</button></div>`;
   bindItemActions(item);
   return item;
@@ -565,6 +578,7 @@ function deleteUsage(id) {
 async function handleExcelUpload(file = elements.excelFile.files[0]) {
   if (!file) return alert("업로드할 파일을 선택하세요.");
   try {
+    freezeAutoUsageSelections();
     const rows = await parseSpreadsheetFile(file);
     const parsed = parseAttendanceXlsRows(rows);
     if (!parsed.parsedRecords.length) throw new Error("업로드 가능한 근태 데이터가 없습니다.");
@@ -805,10 +819,14 @@ function seedDemoData() {
 function getUsageAttendanceSelectElements() {
   return [elements.usageAttendanceDate1, elements.usageAttendanceDate2, elements.usageAttendanceDate3, elements.usageAttendanceDate4];
 }
-function normalizeSelectedAttendanceIds(value) {
+function normalizeAttendanceIds(value, maxCount = 4) {
   if (!value) return [];
   const rawValues = Array.isArray(value) ? value : [value];
-  return rawValues.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 4);
+  const normalizedValues = rawValues.map((item) => String(item || "").trim()).filter(Boolean);
+  return Number.isFinite(maxCount) ? normalizedValues.slice(0, maxCount) : normalizedValues;
+}
+function normalizeSelectedAttendanceIds(value) {
+  return normalizeAttendanceIds(value, 4);
 }
 function getSelectedAttendanceIdsFromForm() {
   return normalizeSelectedAttendanceIds(getUsageAttendanceSelectElements().map((select) => select.value));
@@ -853,6 +871,29 @@ function resolveSelectedAttendanceEntries(selectedIds, generatedEntries) {
     resolved.push(selectedId);
   });
   return resolved;
+}
+function getEffectiveUsageAttendanceIds(usageRecord) {
+  const selectedIds = normalizeSelectedAttendanceIds(usageRecord.selectedAttendanceIds ?? usageRecord.selectedAttendanceDates ?? usageRecord.selectedAttendanceDate);
+  return selectedIds.length ? selectedIds : normalizeAttendanceIds(usageRecord.lockedAttendanceIds, Infinity);
+}
+function getAllocationAttendanceIds(allocations) {
+  return Array.from(new Set((allocations || []).map((allocation) => allocation.attendanceId).filter(Boolean)));
+}
+function freezeAutoUsageSelections() {
+  const ledger = buildLedger();
+  let hasChanges = false;
+  state.usageRecords = state.usageRecords.map((usageRecord) => {
+    const manualSelection = normalizeSelectedAttendanceIds(usageRecord.selectedAttendanceIds ?? usageRecord.selectedAttendanceDates ?? usageRecord.selectedAttendanceDate);
+    if (manualSelection.length) return usageRecord;
+    const lockedAttendanceIds = getAllocationAttendanceIds(ledger.usageAllocations[usageRecord.id] || []);
+    if (!lockedAttendanceIds.length) return usageRecord;
+    const currentLockedIds = normalizeAttendanceIds(usageRecord.lockedAttendanceIds, Infinity);
+    const isSame = currentLockedIds.length === lockedAttendanceIds.length && currentLockedIds.every((id, index) => id === lockedAttendanceIds[index]);
+    if (isSame) return usageRecord;
+    hasChanges = true;
+    return { ...usageRecord, lockedAttendanceIds };
+  });
+  if (hasChanges) saveState();
 }
 function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
   if (entry.remainingMinutes > 0) return true;
