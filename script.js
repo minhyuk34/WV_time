@@ -488,10 +488,16 @@ function renderUsageItem(usage, ledger) {
   return item;
 }
 function buildLedgerRows(ledger) {
+  const today = getTodayString();
   const rows = [];
-  ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length).forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`], flowLabel: "적립", minutes: entry.earnedMinutes }));
+  ledger.generatedEntries
+    .filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length && !isEntryExpired(entry, today))
+    .forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`], flowLabel: "적립", minutes: entry.earnedMinutes }));
   ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
-    const allocations = ledger.usageAllocations[usage.id] || [];
+    const allocations = (ledger.usageAllocations[usage.id] || []).filter((allocation) => {
+      const sourceEntry = ledger.generatedEntries.find((entry) => entry.id === allocation.attendanceId);
+      return sourceEntry && !isEntryExpired(sourceEntry, today);
+    });
     if (!allocations.length) return;
     rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: usage.durationMinutes, canDelete: true });
   });
@@ -607,13 +613,6 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
     const appendedCount = appendedRecords.length;
     const finalSavedCount = state.attendanceRecords.length;
     const finalRenderedCount = buildLedger().generatedEntries.filter((entry) => entry.earnedMinutes > 0).length;
-    console.log("existingRecords.length", existingRecordsLength);
-    console.log("parsedRecords.length", parsed.parsedRecords.length);
-    console.log("zeroMinuteExcludedCount", zeroMinuteExcludedCount);
-    console.log("duplicateSkippedCount", duplicateSkippedCount);
-    console.log("appendedCount", appendedCount);
-    console.log("finalSavedCount", finalSavedCount);
-    console.log("finalRenderedCount", finalRenderedCount);
     elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건`;
   } catch (error) {
     console.error(error);
@@ -623,7 +622,8 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
 }
 async function parseSpreadsheetFile(file) {
   const extension = file.name.split(".").pop().toLowerCase();
-  if (extension !== "xls" && extension !== "xlsx") throw new Error("지원하지 않는 파일 형식입니다. 회사 근태 엑셀(.xls/.xlsx) 파일을 업로드하세요.");
+  const supportedExtensions = new Set(["xls", "xlsx", "xml", "csv", "html", "htm"]);
+  if (!supportedExtensions.has(extension)) throw new Error("지원하지 않는 파일 형식입니다. 근태 파일(.xls/.xlsx/.xml/.csv/.html)을 업로드하세요.");
   return parseExcelWithSheetJs(file);
 }
 async function parseExcelWithSheetJs(file) {
@@ -644,16 +644,24 @@ function readFileAsArrayBuffer(file) {
   });
 }
 function parseAttendanceXlsRows(rows) {
-  if (!Array.isArray(rows) || rows.length <= 2) return { parsedRecords: [], dataRowCount: 0, excludedRowCount: 0 };
-  const dataRows = rows.slice(2).filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim() !== ""));
+  if (!Array.isArray(rows) || !rows.length) return { parsedRecords: [], dataRowCount: 0, excludedRowCount: 0 };
+  const rowEntries = rows
+    .map((row, index) => ({ row: Array.isArray(row) ? row : [], index }))
+    .filter(({ row }) => row.some((cell) => String(cell ?? "").trim() !== ""));
+  if (!rowEntries.length) return { parsedRecords: [], dataRowCount: 0, excludedRowCount: 0 };
+  const detectedHeader = findAttendanceHeaderRow(rowEntries);
+  const columnIndexes = detectedHeader?.columnIndexes || getLegacyAttendanceColumnIndexes();
+  const dataRows = detectedHeader
+    ? rowEntries.slice(detectedHeader.rowEntryIndex + 1).map(({ row }) => row)
+    : rowEntries.slice(Math.min(2, rowEntries.length)).map(({ row }) => row);
   const parsedRecords = [];
   let excludedRowCount = 0;
   dataRows.forEach((row) => {
     const cells = Array.isArray(row) ? row : [];
-    const date = normalizeExcelDate(cells[5]);
-    const workType = extractWorkType(cells[8]);
-    const actualStart = normalizeExcelTime(cells[12]);
-    const actualEnd = normalizeExcelTime(cells[13]);
+    const date = normalizeExcelDate(cells[columnIndexes.date]);
+    const workType = extractWorkType(cells[columnIndexes.workType]);
+    const actualStart = normalizeExcelTime(cells[columnIndexes.actualStart]);
+    const actualEnd = normalizeExcelTime(cells[columnIndexes.actualEnd]);
     if (!date) {
       excludedRowCount += 1;
       return;
@@ -665,6 +673,45 @@ function parseAttendanceXlsRows(rows) {
     parsedRecords.push({ id: createId("attendance"), date, workType: workType || "C형", actualStart, actualEnd, overtime: false, overtimeChecked: false, source: "import" });
   });
   return { parsedRecords, dataRowCount: dataRows.length, excludedRowCount };
+}
+function findAttendanceHeaderRow(rowEntries) {
+  for (let rowEntryIndex = 0; rowEntryIndex < rowEntries.length; rowEntryIndex += 1) {
+    const { row } = rowEntries[rowEntryIndex];
+    const normalizedHeaders = row.map(normalizeAttendanceHeaderCell);
+    const columnIndexes = {
+      date: findHeaderColumnIndex(normalizedHeaders, ["날짜", "근무일자", "일자", "date"]),
+      workType: findHeaderColumnIndex(normalizedHeaders, ["근무유형", "근무형", "유형", "worktype", "shift"]),
+      actualStart: findHeaderColumnIndex(normalizedHeaders, ["실제출근시간", "출근시간", "실제출근", "출근", "starttime", "clockin"]),
+      actualEnd: findHeaderColumnIndex(normalizedHeaders, ["실제퇴근시간", "퇴근시간", "실제퇴근", "퇴근", "endtime", "clockout"])
+    };
+    if (Number.isInteger(columnIndexes.date) && Number.isInteger(columnIndexes.actualStart) && Number.isInteger(columnIndexes.actualEnd)) {
+      return { rowEntryIndex, columnIndexes };
+    }
+  }
+  return null;
+}
+function getLegacyAttendanceColumnIndexes() {
+  return { date: 5, workType: 8, actualStart: 12, actualEnd: 13 };
+}
+function normalizeAttendanceHeaderCell(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s/g, "")
+    .replace(/[()[\]{}_.:/\\-]/g, "");
+}
+function findHeaderColumnIndex(headers, candidates) {
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeAttendanceHeaderCell(candidate);
+    const exactIndex = headers.findIndex((header) => header === normalizedCandidate);
+    if (exactIndex >= 0) return exactIndex;
+  }
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeAttendanceHeaderCell(candidate);
+    const partialIndex = headers.findIndex((header) => header.includes(normalizedCandidate) || normalizedCandidate.includes(header));
+    if (partialIndex >= 0) return partialIndex;
+  }
+  return -1;
 }
 function normalizeExcelDate(value) {
   if (value == null || value === "") return "";
@@ -896,10 +943,13 @@ function freezeAutoUsageSelections() {
   if (hasChanges) saveState();
 }
 function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
-  if (compareDate(entry.expiryDate, referenceDate) < 0) return false;
+  if (isEntryExpired(entry, referenceDate)) return false;
   if (entry.remainingMinutes > 0) return true;
   if (isAttendanceHistoryVisible(entry.date, referenceDate)) return true;
   return entry.allocations.some((allocation) => isUsageHistoryVisible(allocation.usageDate, referenceDate));
+}
+function isEntryExpired(entry, referenceDate = getTodayString()) {
+  return compareDate(entry.expiryDate, referenceDate) < 0;
 }
 function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(attendanceDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
