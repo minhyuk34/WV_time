@@ -896,6 +896,7 @@ function freezeAutoUsageSelections() {
   if (hasChanges) saveState();
 }
 function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
+  if (compareDate(entry.expiryDate, referenceDate) < 0) return false;
   if (entry.remainingMinutes > 0) return true;
   if (isAttendanceHistoryVisible(entry.date, referenceDate)) return true;
   return entry.allocations.some((allocation) => isUsageHistoryVisible(allocation.usageDate, referenceDate));
