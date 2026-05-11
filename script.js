@@ -413,7 +413,7 @@ function renderSummary() {
 }
 function renderAttendanceList() {
   const ledger = buildLedger();
-  const visibleEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0);
+  const visibleEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && shouldShowAttendanceEntry(entry));
   elements.attendanceCount.textContent = `${visibleEntries.length}건`;
   renderCollection(elements.attendanceList, visibleEntries.map(renderAttendanceItem));
 }
@@ -464,16 +464,21 @@ function buildLedgerRows(ledger) {
   ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
     const allocations = ledger.usageAllocations[usage.id] || [];
     if (!allocations.length) return;
-    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: usage.durationMinutes });
+    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: usage.durationMinutes, canDelete: true });
   });
   return groupLedgerRowsByUsage(rows);
 }
 function renderTimelineItem(row) {
   const item = document.createElement("article");
+  const actionHtml = row.canDelete
+    ? `<div class="item-actions"><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${row.usageId}">삭제</button></div>`
+    : "";
   item.className = "list-item";
   item.innerHTML = `
     <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">사용기록 1건 기준 연결 내역</div></div><span class="pill ${row.flowLabel === "적립" ? "info" : "warning"}">${row.flowLabel}</span></div>
-    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>차감시간</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>`;
+    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>차감시간</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
+    ${actionHtml}`;
+  bindItemActions(item);
   return item;
 }
 function bindItemActions(container) {
@@ -837,6 +842,14 @@ function resolveSelectedAttendanceEntries(selectedIds, generatedEntries) {
     resolved.push(selectedId);
   });
   return resolved;
+}
+function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
+  if (entry.remainingMinutes > 0) return true;
+  if (isAttendanceHistoryVisible(entry.date, referenceDate)) return true;
+  return entry.allocations.some((allocation) => isUsageHistoryVisible(allocation.usageDate, referenceDate));
+}
+function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayString()) {
+  return compareDate(referenceDate, addDays(attendanceDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
 }
 function isUsageHistoryVisible(usageDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(usageDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
