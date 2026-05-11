@@ -494,12 +494,10 @@ function buildLedgerRows(ledger) {
     .filter((entry) => entry.earnedMinutes > 0 && !entry.allocations.length && !isEntryExpired(entry, today))
     .forEach((entry) => rows.push({ type: "미사용", usageId: `unused_${entry.id}`, usageLabel: "미사용", attendanceItems: [`${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`], flowLabel: "적립", minutes: entry.earnedMinutes }));
   ledger.usageRecords.filter((usage) => isUsageHistoryVisible(usage.date)).forEach((usage) => {
-    const allocations = (ledger.usageAllocations[usage.id] || []).filter((allocation) => {
-      const sourceEntry = ledger.generatedEntries.find((entry) => entry.id === allocation.attendanceId);
-      return sourceEntry && !isEntryExpired(sourceEntry, today);
-    });
+    const allocations = (ledger.usageAllocations[usage.id] || []).filter((allocation) => !isExpiredAttendanceDate(allocation.attendanceDate, today));
     if (!allocations.length) return;
-    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: usage.durationMinutes, canDelete: true });
+    const visibleMinutes = allocations.reduce((sum, allocation) => sum + allocation.minutes, 0);
+    rows.push({ type: "차감", usageId: usage.id || `${usage.date}_${usage.startTime}_${usage.endTime}`, usageLabel: formatUsageRange(usage), attendanceItems: allocations.map((allocation) => allocation.attendanceRangeLabel), flowLabel: "차감", minutes: visibleMinutes, canDelete: true });
   });
   return groupLedgerRowsByUsage(rows);
 }
@@ -950,6 +948,10 @@ function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
 }
 function isEntryExpired(entry, referenceDate = getTodayString()) {
   return compareDate(entry.expiryDate, referenceDate) < 0;
+}
+function isExpiredAttendanceDate(attendanceDate, referenceDate = getTodayString()) {
+  if (!attendanceDate) return true;
+  return compareDate(addDays(attendanceDate, 30), referenceDate) < 0;
 }
 function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(attendanceDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
