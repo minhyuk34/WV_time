@@ -596,8 +596,7 @@ function deleteUsage(id) {
 async function handleExcelUpload(file = elements.excelFile.files[0]) {
   if (!file) return alert("업로드할 파일을 선택하세요.");
   try {
-    const rows = await parseSpreadsheetFile(file);
-    const parsed = parseAttendanceXlsRows(rows);
+    const parsed = await parseSpreadsheetFile(file);
     if (!parsed.parsedRecords.length) throw new Error("업로드 가능한 근태 데이터가 없습니다.");
     const existingRecordsLength = state.attendanceRecords.length;
     let zeroMinuteExcludedCount = 0;
@@ -625,7 +624,8 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
     const appendedCount = appendedRecords.length;
     const finalSavedCount = state.attendanceRecords.length;
     const finalRenderedCount = buildLedger().generatedEntries.filter((entry) => entry.earnedMinutes > 0).length;
-    elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건`;
+    const sheetLabel = parsed.sheetName ? `, 선택 시트 ${parsed.sheetName}` : "";
+    elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건${sheetLabel}`;
   } catch (error) {
     console.error(error);
     elements.uploadResult.textContent = `업로드 실패: ${error.message}`;
@@ -642,10 +642,27 @@ async function parseExcelWithSheetJs(file) {
   if (typeof XLSX === "undefined") throw new Error("엑셀 라이브러리를 불러오지 못했습니다. xlsx.full.min.js 로드 여부를 확인하세요.");
   const data = await readFileAsArrayBuffer(file);
   const workbook = XLSX.read(data, { type: "array", codepage: 949, cellDates: false });
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) throw new Error("첫 번째 시트를 찾지 못했습니다.");
-  const worksheet = workbook.Sheets[firstSheetName];
-  return XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" });
+  if (!workbook.SheetNames.length) throw new Error("시트를 찾지 못했습니다.");
+  let bestParsed = null;
+  workbook.SheetNames.forEach((sheetName) => {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) return;
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: "" });
+    const parsed = parseAttendanceXlsRows(rows);
+    if (!bestParsed || isBetterParsedSheet(parsed, bestParsed)) bestParsed = { ...parsed, sheetName };
+  });
+  if (!bestParsed) throw new Error("업로드 가능한 시트를 찾지 못했습니다.");
+  return bestParsed;
+}
+function isBetterParsedSheet(candidate, currentBest) {
+  if (candidate.parsedRecords.length !== currentBest.parsedRecords.length) {
+    return candidate.parsedRecords.length > currentBest.parsedRecords.length;
+  }
+  const candidateUsableCount = candidate.parsedRecords.filter((record) => calculateGeneratedMinutes(record) > 0).length;
+  const currentUsableCount = currentBest.parsedRecords.filter((record) => calculateGeneratedMinutes(record) > 0).length;
+  if (candidateUsableCount !== currentUsableCount) return candidateUsableCount > currentUsableCount;
+  if (candidate.dataRowCount !== currentBest.dataRowCount) return candidate.dataRowCount > currentBest.dataRowCount;
+  return candidate.excludedRowCount < currentBest.excludedRowCount;
 }
 function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
