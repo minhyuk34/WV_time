@@ -222,7 +222,6 @@ function getSelectedAttendanceLabel(selectedAttendanceIds) {
 }
 function handleAttendanceSubmit(event) {
   event.preventDefault();
-  freezeAutoUsageSelections();
   const record = { id: elements.attendanceId.value || createId("attendance"), date: elements.attendanceDate.value, workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked, source: "manual" };
   const validationMessage = validateAttendanceRecord(record);
   if (validationMessage) return alert(validationMessage);
@@ -242,6 +241,7 @@ function handleAttendanceSubmit(event) {
   } else {
     state.attendanceRecords.push(normalizedRecord);
   }
+  refreshAutoUsageSelections();
   saveAttendanceRecords();
   resetAttendanceForm();
   populateUsageAttendanceOptions();
@@ -269,6 +269,7 @@ function handleUsageSubmit(event) {
   const existingIndex = state.usageRecords.findIndex((item) => item.id === record.id);
   if (existingIndex >= 0) state.usageRecords.splice(existingIndex, 1, { ...record, durationMinutes, lockedAttendanceIds });
   else state.usageRecords.push({ ...record, durationMinutes, lockedAttendanceIds });
+  refreshAutoUsageSelections();
   saveState();
   resetUsageForm();
   populateUsageAttendanceOptions();
@@ -545,6 +546,7 @@ function saveOvertimeFromList(recordId, checked) {
   const generatedMinutes = calculateGeneratedMinutes(updatedRecord);
   state.attendanceRecords.splice(recordIndex, 1, { ...updatedRecord, generatedMinutes });
   if (elements.attendanceId.value === recordId) elements.overtimeChecked.checked = checked;
+  refreshAutoUsageSelections();
   saveAttendanceRecords();
   rerenderAll();
 }
@@ -565,6 +567,7 @@ function startAttendanceEdit(id) {
 function deleteAttendance(id) {
   if (!confirm("이 발생기록을 삭제할까요? 연결된 사용 차감 결과도 다시 계산됩니다.")) return;
   state.attendanceRecords = state.attendanceRecords.filter((item) => item.id !== id);
+  refreshAutoUsageSelections();
   saveState();
   populateUsageAttendanceOptions();
   renderAll();
@@ -586,13 +589,13 @@ function startUsageEdit(id) {
 function deleteUsage(id) {
   if (!confirm("이 사용기록을 삭제할까요? FIFO 차감 결과가 다시 계산됩니다.")) return;
   state.usageRecords = state.usageRecords.filter((item) => item.id !== id);
+  refreshAutoUsageSelections();
   saveState();
   renderAll();
 }
 async function handleExcelUpload(file = elements.excelFile.files[0]) {
   if (!file) return alert("업로드할 파일을 선택하세요.");
   try {
-    freezeAutoUsageSelections();
     const rows = await parseSpreadsheetFile(file);
     const parsed = parseAttendanceXlsRows(rows);
     if (!parsed.parsedRecords.length) throw new Error("업로드 가능한 근태 데이터가 없습니다.");
@@ -615,6 +618,7 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
       appendedRecords.push({ ...record, generatedMinutes });
     });
     state.attendanceRecords = [...state.attendanceRecords, ...appendedRecords];
+    refreshAutoUsageSelections();
     saveAttendanceRecords();
     populateUsageAttendanceOptions();
     rerenderAll();
@@ -687,10 +691,10 @@ function findAttendanceHeaderRow(rowEntries) {
     const { row } = rowEntries[rowEntryIndex];
     const normalizedHeaders = row.map(normalizeAttendanceHeaderCell);
     const columnIndexes = {
-      date: findHeaderColumnIndex(normalizedHeaders, ["날짜", "근무일자", "일자", "date"]),
-      workType: findHeaderColumnIndex(normalizedHeaders, ["근무유형", "근무형", "유형", "worktype", "shift"]),
-      actualStart: findHeaderColumnIndex(normalizedHeaders, ["실제출근시간", "출근시간", "실제출근", "출근", "starttime", "clockin"]),
-      actualEnd: findHeaderColumnIndex(normalizedHeaders, ["실제퇴근시간", "퇴근시간", "실제퇴근", "퇴근", "endtime", "clockout"])
+      date: findHeaderColumnIndex(normalizedHeaders, ["날짜", "근무일자", "근무일", "일자", "date", "workdate"]),
+      workType: findHeaderColumnIndex(normalizedHeaders, ["근무유형", "근무형", "근무", "유형", "worktype", "shift"]),
+      actualStart: findHeaderColumnIndex(normalizedHeaders, ["실제출근시간", "출근시간", "실제출근", "출근", "출근시각", "starttime", "clockin", "intime"]),
+      actualEnd: findHeaderColumnIndex(normalizedHeaders, ["실제퇴근시간", "퇴근시간", "실제퇴근", "퇴근", "퇴근시각", "endtime", "clockout", "outtime"])
     };
     if (Number.isInteger(columnIndexes.date) && Number.isInteger(columnIndexes.actualStart) && Number.isInteger(columnIndexes.actualEnd)) {
       return { rowEntryIndex, columnIndexes };
@@ -726,8 +730,16 @@ function normalizeExcelDate(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return toDateString(value);
   if (typeof value === "number" && Number.isFinite(value) && value > 20000) return excelSerialToDate(value);
   const text = String(value).trim();
+  const koreanMatch = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (koreanMatch) return `${koreanMatch[1]}-${koreanMatch[2].padStart(2, "0")}-${koreanMatch[3].padStart(2, "0")}`;
   const match = text.match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
   if (match) return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+  const shortMatch = text.match(/(^|[^\d])(\d{1,2})[./-](\d{1,2})(?:[^\d]|$)/);
+  if (shortMatch) {
+    const inferredYear = new Date().getFullYear();
+    return `${inferredYear}-${shortMatch[2].padStart(2, "0")}-${shortMatch[3].padStart(2, "0")}`;
+  }
+  if (/^\d{5}$/.test(text)) return excelSerialToDate(Number(text));
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? "" : toDateString(parsed);
 }
@@ -739,6 +751,15 @@ function normalizeExcelTime(value) {
     if (fraction > 0 || (value > 0 && value < 1)) return formatTime(Math.round((fraction || value) * 24 * 60));
   }
   const text = String(value).trim();
+  const koreanMeridiemMatch = text.match(/(오전|오후)\s*(\d{1,2})[:시]\s*(\d{1,2})?/);
+  if (koreanMeridiemMatch) {
+    let hours = Number(koreanMeridiemMatch[2]) % 12;
+    if (koreanMeridiemMatch[1] === "오후") hours += 12;
+    const minutes = Number(koreanMeridiemMatch[3] ?? "0");
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+  const koreanTimeMatch = text.match(/(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분?)?/);
+  if (koreanTimeMatch) return `${koreanTimeMatch[1].padStart(2, "0")}:${String(Number(koreanTimeMatch[2] ?? "0")).padStart(2, "0")}`;
   const match = text.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
   if (match) return `${match[1].padStart(2, "0")}:${match[2]}`;
   return "";
@@ -938,6 +959,15 @@ function getEffectiveUsageAttendanceIds(usageRecord) {
 }
 function getAllocationAttendanceIds(allocations) {
   return Array.from(new Set((allocations || []).map((allocation) => allocation.attendanceId).filter(Boolean)));
+}
+function refreshAutoUsageSelections() {
+  state.usageRecords = state.usageRecords.map((usageRecord) => {
+    const manualSelection = normalizeSelectedAttendanceIds(usageRecord.selectedAttendanceIds ?? usageRecord.selectedAttendanceDates ?? usageRecord.selectedAttendanceDate);
+    if (manualSelection.length || !normalizeAttendanceIds(usageRecord.lockedAttendanceIds, Infinity).length) return usageRecord;
+    const { lockedAttendanceIds, ...rest } = usageRecord;
+    return rest;
+  });
+  freezeAutoUsageSelections();
 }
 function freezeAutoUsageSelections() {
   const ledger = buildLedger();
