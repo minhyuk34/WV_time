@@ -713,18 +713,28 @@ function parseAttendanceXlsRows(rows) {
 function findAttendanceHeaderRow(rowEntries) {
   for (let rowEntryIndex = 0; rowEntryIndex < rowEntries.length; rowEntryIndex += 1) {
     const { row } = rowEntries[rowEntryIndex];
-    const normalizedHeaders = row.map(normalizeAttendanceHeaderCell);
+    const nextRow = rowEntries[rowEntryIndex + 1]?.row || [];
+    const normalizedHeaders = buildNormalizedAttendanceHeaders(row, nextRow);
     const columnIndexes = {
       date: findHeaderColumnIndex(normalizedHeaders, ["날짜", "근무일자", "근무일", "일자", "date", "workdate"]),
       workType: findHeaderColumnIndex(normalizedHeaders, ["근무유형", "근무형", "근무", "유형", "worktype", "shift"]),
-      actualStart: findHeaderColumnIndex(normalizedHeaders, ["실제출근시간", "출근시간", "실제출근", "출근", "출근시각", "starttime", "clockin", "intime"]),
-      actualEnd: findHeaderColumnIndex(normalizedHeaders, ["실제퇴근시간", "퇴근시간", "실제퇴근", "퇴근", "퇴근시각", "endtime", "clockout", "outtime"])
+      actualStart: findHeaderColumnIndex(normalizedHeaders, ["출퇴근카드출근일시", "실제출근시간", "출근일시", "출근시간", "실제출근", "출근", "출근시각", "starttime", "clockin", "intime"]),
+      actualEnd: findHeaderColumnIndex(normalizedHeaders, ["출퇴근카드퇴근일시", "실제퇴근시간", "퇴근일시", "퇴근시간", "실제퇴근", "퇴근", "퇴근시각", "endtime", "clockout", "outtime"])
     };
     if (Number.isInteger(columnIndexes.date) && Number.isInteger(columnIndexes.actualStart) && Number.isInteger(columnIndexes.actualEnd)) {
       return { rowEntryIndex, columnIndexes };
     }
   }
   return null;
+}
+function buildNormalizedAttendanceHeaders(row, nextRow = []) {
+  const maxLength = Math.max(row.length, nextRow.length);
+  return Array.from({ length: maxLength }, (_, index) => {
+    const primary = normalizeAttendanceHeaderCell(row[index]);
+    const secondary = normalizeAttendanceHeaderCell(nextRow[index]);
+    if (primary && secondary && primary !== secondary) return `${primary}${secondary}`;
+    return primary || secondary;
+  });
 }
 function getLegacyAttendanceColumnIndexes() {
   return { date: 5, workType: 8, actualStart: 12, actualEnd: 13 };
