@@ -678,19 +678,50 @@ function parseAttendanceXlsRows(rows) {
     .map((row, index) => ({ row: Array.isArray(row) ? row : [], index }))
     .filter(({ row }) => row.some((cell) => String(cell ?? "").trim() !== ""));
   if (!rowEntries.length) return { parsedRecords: [], dataRowCount: 0, excludedRowCount: 0 };
+  const candidates = buildAttendanceParseCandidates(rowEntries);
+  if (!candidates.length) return { parsedRecords: [], dataRowCount: 0, excludedRowCount: rowEntries.length };
+  let bestResult = null;
+  candidates.forEach((candidate) => {
+    const result = parseAttendanceRowsWithCandidate(rowEntries, candidate);
+    if (!bestResult || isBetterAttendanceParseResult(result, bestResult)) bestResult = result;
+  });
+  return bestResult || { parsedRecords: [], dataRowCount: 0, excludedRowCount: rowEntries.length };
+}
+function buildAttendanceParseCandidates(rowEntries) {
+  const candidates = [];
   const detectedHeader = findAttendanceHeaderRow(rowEntries);
-  const columnIndexes = detectedHeader?.columnIndexes || getLegacyAttendanceColumnIndexes();
-  const dataRows = detectedHeader
-    ? rowEntries.slice(detectedHeader.rowEntryIndex + 1).map(({ row }) => row)
-    : rowEntries.slice(Math.min(2, rowEntries.length)).map(({ row }) => row);
+  if (detectedHeader) candidates.push({ type: "header", rowEntryIndex: detectedHeader.rowEntryIndex, columnIndexes: detectedHeader.columnIndexes });
+  candidates.push({ type: "legacy", rowEntryIndex: null, columnIndexes: getLegacyAttendanceColumnIndexes() });
+  const inferredColumns = inferAttendanceColumnIndexes(rowEntries);
+  if (inferredColumns) candidates.push({ type: "inferred", rowEntryIndex: findLikelyAttendanceHeaderIndex(rowEntries, inferredColumns), columnIndexes: inferredColumns });
+  return dedupeAttendanceParseCandidates(candidates);
+}
+function dedupeAttendanceParseCandidates(candidates) {
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    const key = `${candidate.rowEntryIndex ?? "none"}:${candidate.columnIndexes.date}:${candidate.columnIndexes.workType}:${candidate.columnIndexes.actualStart}:${candidate.columnIndexes.actualEnd}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function parseAttendanceRowsWithCandidate(rowEntries, candidate) {
+  const dataRows = Number.isInteger(candidate.rowEntryIndex)
+    ? rowEntries.slice(candidate.rowEntryIndex + 1).map(({ row }) => row)
+    : rowEntries.map(({ row }) => row);
   const parsedRecords = [];
   let excludedRowCount = 0;
   dataRows.forEach((row) => {
     const cells = Array.isArray(row) ? row : [];
-    const date = normalizeExcelDate(cells[columnIndexes.date]);
-    const workType = extractWorkType(cells[columnIndexes.workType]);
-    const actualStart = normalizeExcelTime(cells[columnIndexes.actualStart]);
-    const actualEnd = normalizeExcelTime(cells[columnIndexes.actualEnd]);
+    const date = normalizeExcelDate(cells[candidate.columnIndexes.date]);
+    const workType = extractWorkType(cells[candidate.columnIndexes.workType]);
+    let actualStart = normalizeExcelTime(cells[candidate.columnIndexes.actualStart]);
+    let actualEnd = normalizeExcelTime(cells[candidate.columnIndexes.actualEnd]);
+    if ((!actualStart || !actualEnd) && cells.length) {
+      const range = extractTimeRangeFromRow(cells);
+      if (!actualStart) actualStart = range.start;
+      if (!actualEnd) actualEnd = range.end;
+    }
     if (!date) {
       excludedRowCount += 1;
       return;
@@ -701,7 +732,81 @@ function parseAttendanceXlsRows(rows) {
     }
     parsedRecords.push({ id: createId("attendance"), date, workType: workType || "C형", actualStart, actualEnd, overtime: false, overtimeChecked: false, source: "import" });
   });
-  return { parsedRecords, dataRowCount: dataRows.length, excludedRowCount };
+  const usableRecordCount = parsedRecords.filter((record) => calculateGeneratedMinutes(record) > 0).length;
+  return { parsedRecords, dataRowCount: dataRows.length, excludedRowCount, usableRecordCount, candidate };
+}
+function isBetterAttendanceParseResult(candidate, currentBest) {
+  if (candidate.usableRecordCount !== currentBest.usableRecordCount) return candidate.usableRecordCount > currentBest.usableRecordCount;
+  if (candidate.parsedRecords.length !== currentBest.parsedRecords.length) return candidate.parsedRecords.length > currentBest.parsedRecords.length;
+  if (candidate.excludedRowCount !== currentBest.excludedRowCount) return candidate.excludedRowCount < currentBest.excludedRowCount;
+  return candidate.dataRowCount > currentBest.dataRowCount;
+}
+function inferAttendanceColumnIndexes(rowEntries) {
+  const maxColumns = rowEntries.reduce((max, { row }) => Math.max(max, row.length), 0);
+  if (!maxColumns) return null;
+  const columnStats = Array.from({ length: maxColumns }, (_, index) => {
+    const nonEmptyValues = rowEntries.map(({ row }) => row[index]).filter((value) => String(value ?? "").trim() !== "");
+    const dateCount = nonEmptyValues.filter((value) => Boolean(normalizeExcelDate(value))).length;
+    const timeValues = nonEmptyValues.map((value) => normalizeExcelTime(value)).filter(Boolean);
+    const timeCount = timeValues.length;
+    const avgMinutes = timeValues.length ? timeValues.reduce((sum, value) => sum + toMinutes(value), 0) / timeValues.length : null;
+    const workTypeCount = nonEmptyValues.filter((value) => {
+      const raw = String(value ?? "").trim();
+      if (!raw) return false;
+      const extracted = extractWorkType(raw);
+      return Boolean(raw.match(/[A-D](?:-1)?/i) || (extracted && extracted !== "C형"));
+    }).length;
+    return { index, dateCount, timeCount, avgMinutes, workTypeCount };
+  });
+  const dateColumn = [...columnStats].sort((a, b) => b.dateCount - a.dateCount)[0];
+  const timeColumns = columnStats.filter((item) => item.timeCount > 0).sort((a, b) => {
+    if (b.timeCount !== a.timeCount) return b.timeCount - a.timeCount;
+    return (a.avgMinutes ?? 0) - (b.avgMinutes ?? 0);
+  });
+  if (!dateColumn || dateColumn.dateCount < 2 || timeColumns.length < 2) return null;
+  const orderedTimeColumns = [...timeColumns]
+    .slice(0, 6)
+    .sort((a, b) => (a.avgMinutes ?? 0) - (b.avgMinutes ?? 0));
+  const startColumn = orderedTimeColumns[0];
+  const endColumn = orderedTimeColumns[orderedTimeColumns.length - 1];
+  const workTypeColumn = [...columnStats].sort((a, b) => b.workTypeCount - a.workTypeCount)[0];
+  return {
+    date: dateColumn.index,
+    workType: workTypeColumn?.workTypeCount ? workTypeColumn.index : -1,
+    actualStart: startColumn.index,
+    actualEnd: endColumn.index
+  };
+}
+function findLikelyAttendanceHeaderIndex(rowEntries, columnIndexes) {
+  for (let rowEntryIndex = 0; rowEntryIndex < Math.min(rowEntries.length, 8); rowEntryIndex += 1) {
+    const row = rowEntries[rowEntryIndex].row;
+    const dateCell = String(row[columnIndexes.date] ?? "");
+    const startCell = String(row[columnIndexes.actualStart] ?? "");
+    const endCell = String(row[columnIndexes.actualEnd] ?? "");
+    const normalizedCells = [dateCell, startCell, endCell].map(normalizeAttendanceHeaderCell);
+    const looksLikeHeader = normalizedCells.some((cell) => /날짜|일자|date|출근|퇴근|start|end|clock/.test(cell));
+    if (looksLikeHeader) return rowEntryIndex;
+  }
+  return null;
+}
+function extractTimeRangeFromRow(cells) {
+  const normalizedTimes = cells
+    .flatMap((cell) => extractTimeCandidates(cell))
+    .filter(Boolean);
+  if (normalizedTimes.length < 2) return { start: "", end: "" };
+  const uniqueTimes = Array.from(new Set(normalizedTimes));
+  if (uniqueTimes.length < 2) return { start: uniqueTimes[0] || "", end: "" };
+  const sortedTimes = uniqueTimes.sort((a, b) => toMinutes(a) - toMinutes(b));
+  return { start: sortedTimes[0], end: sortedTimes[sortedTimes.length - 1] };
+}
+function extractTimeCandidates(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return [];
+  const matches = text.match(/\d{1,2}:\d{2}/g) || [];
+  const normalizedMatches = matches.map((timeText) => normalizeExcelTime(timeText)).filter(Boolean);
+  if (normalizedMatches.length) return normalizedMatches;
+  const koreanMatches = Array.from(text.matchAll(/(?:오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분?)?/g)).map((match) => normalizeExcelTime(match[0])).filter(Boolean);
+  return koreanMatches;
 }
 function findAttendanceHeaderRow(rowEntries) {
   for (let rowEntryIndex = 0; rowEntryIndex < rowEntries.length; rowEntryIndex += 1) {
