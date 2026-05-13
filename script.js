@@ -309,10 +309,12 @@ function renderUsagePreview() {
 function calculateEarnedMinutes(record) {
   const schedule = WORK_TYPES[resolveWorkTypeKey(record.workType)];
   if (!schedule) return 0;
+  if (!record.actualStart || !record.actualEnd) return 0;
   const scheduledStart = toMinutes(schedule.start);
   const scheduledEnd = toMinutes(schedule.end);
-  const actualStart = record.actualStart ? toMinutes(record.actualStart) : scheduledStart;
-  const actualEnd = record.actualEnd ? toMinutes(record.actualEnd) : scheduledEnd;
+  const actualStart = toMinutes(record.actualStart);
+  const actualEnd = toMinutes(record.actualEnd);
+  if (actualEnd <= actualStart) return 0;
   const earlyEarned = floorToUnit(Math.max(0, scheduledStart - actualStart), FLOOR_UNIT);
   const lateBase = Boolean(record.overtime ?? record.overtimeChecked) ? scheduledEnd + 150 : scheduledEnd;
   const lateEarned = floorToUnit(Math.max(0, actualEnd - lateBase), FLOOR_UNIT);
@@ -322,10 +324,12 @@ function calculateGeneratedMinutes(record) { return calculateEarnedMinutes(recor
 function buildGeneratedTimeRanges(record) {
   const schedule = WORK_TYPES[resolveWorkTypeKey(record.workType)];
   if (!schedule) return [];
+  if (!record.actualStart || !record.actualEnd) return [];
   const scheduledStart = toMinutes(schedule.start);
   const scheduledEnd = toMinutes(schedule.end);
-  const actualStart = record.actualStart ? toMinutes(record.actualStart) : scheduledStart;
-  const actualEnd = record.actualEnd ? toMinutes(record.actualEnd) : scheduledEnd;
+  const actualStart = toMinutes(record.actualStart);
+  const actualEnd = toMinutes(record.actualEnd);
+  if (actualEnd <= actualStart) return [];
   const ranges = [];
   const earlyEarned = floorToUnit(Math.max(0, scheduledStart - actualStart), FLOOR_UNIT);
   if (earlyEarned > 0) ranges.push({ start: scheduledStart - earlyEarned, end: scheduledStart, minutes: earlyEarned, segmentType: "early", segmentLabel: "출근 전" });
@@ -694,7 +698,11 @@ function parseAttendanceXlsRows(rows) {
       excludedRowCount += 1;
       return;
     }
-    if (!actualStart && !actualEnd) {
+    if (!actualStart || !actualEnd) {
+      excludedRowCount += 1;
+      return;
+    }
+    if (toMinutes(actualEnd) <= toMinutes(actualStart)) {
       excludedRowCount += 1;
       return;
     }
