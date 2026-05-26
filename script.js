@@ -201,10 +201,11 @@ function renderAll() {
 }
 function getSelectableAttendanceEntries(usageDate = "") {
   const excludeUsageId = elements.usageId?.value || "";
+  const referenceDate = usageDate || getTodayString();
   return buildLedger({ excludeUsageId }).generatedEntries
     .filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0)
-    .filter((entry) => !usageDate || compareDate(entry.date, usageDate) <= 0)
-    .filter((entry) => !usageDate || compareDate(entry.expiryDate, usageDate) >= 0)
+    .filter((entry) => compareDate(entry.date, referenceDate) <= 0)
+    .filter((entry) => !isEntryExpired(entry, referenceDate))
     .sort(sortByDateThenId);
 }
 function formatSelectableAttendanceLabel(entry) {
@@ -286,12 +287,23 @@ function validateUsageRecord(record) {
   const selectedAttendanceIds = normalizeSelectedAttendanceIds(record.selectedAttendanceIds ?? record.selectedAttendanceDates);
   if (selectedAttendanceIds.length > 4) return "차감할 발생기록은 최대 4건까지 선택할 수 있습니다.";
   if (new Set(selectedAttendanceIds).size !== selectedAttendanceIds.length) return "같은 발생기록을 중복 선택할 수 없습니다.";
+  const durationMinutes = calculateUsageMinutes(record.startTime, record.endTime);
+  if (durationMinutes <= 0) return "사용시간이 0분입니다. 30분 단위 기준으로 다시 입력하세요.";
+  const dailyUsageMinutes = getDailyUsageMinutes(record.date, record.id);
+  if (dailyUsageMinutes + durationMinutes > MAX_DAILY_USAGE_MINUTES) {
+    return `하루 최대 사용 가능 시간은 ${formatDuration(MAX_DAILY_USAGE_MINUTES)}입니다. 같은 날짜의 총 사용시간을 확인하세요.`;
+  }
   const resolvedEntries = resolveSelectedAttendanceEntries(selectedAttendanceIds, buildLedger().generatedEntries);
   for (const resolvedEntry of resolvedEntries) {
     if (typeof resolvedEntry === "string") return "선택한 발생기록을 찾을 수 없습니다.";
     if (compareDate(resolvedEntry.date, record.date) > 0) return "사용일보다 미래의 발생기록은 선택할 수 없습니다.";
   }
   return "";
+}
+function getDailyUsageMinutes(targetDate, excludeUsageId = "") {
+  return state.usageRecords
+    .filter((usageRecord) => usageRecord.date === targetDate && usageRecord.id !== excludeUsageId)
+    .reduce((sum, usageRecord) => sum + (usageRecord.durationMinutes ?? calculateUsageMinutes(usageRecord.startTime, usageRecord.endTime)), 0);
 }
 function renderAttendancePreview() {
   if (!elements.attendanceWorkType.value || !elements.actualStart.value || !elements.actualEnd.value) return elements.computedEarnedLabel.textContent = "0분";
@@ -406,7 +418,7 @@ function buildLedger(options = {}) {
     for (const entry of selectableEntries) {
       if (remainingUsage <= 0) break;
       if (entry.earnedMinutes <= 0 || entry.remainingMinutes <= 0) continue;
-      if (compareDate(entry.expiryDate, usage.date) < 0) continue;
+      if (isEntryExpired(entry, usage.date)) continue;
       if (compareDate(entry.date, usage.date) > 0) continue;
       const allocated = Math.min(entry.remainingMinutes, remainingUsage);
       if (allocated <= 0) continue;
@@ -435,7 +447,7 @@ function buildLedger(options = {}) {
 function renderSummary() {
   const ledger = buildLedger();
   const today = getTodayString();
-  const validEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0 && compareDate(entry.expiryDate, today) >= 0);
+  const validEntries = ledger.generatedEntries.filter((entry) => entry.earnedMinutes > 0 && entry.remainingMinutes > 0 && !isEntryExpired(entry, today));
   const totalRemaining = validEntries.reduce((sum, item) => sum + item.remainingMinutes, 0);
   const usableToday = Math.min(MAX_DAILY_USAGE_MINUTES, totalRemaining);
   const schedule = WORK_TYPES[elements.todayWorkType.value];
@@ -1026,11 +1038,11 @@ function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
   return entry.allocations.some((allocation) => isUsageHistoryVisible(allocation.usageDate, referenceDate));
 }
 function isEntryExpired(entry, referenceDate = getTodayString()) {
-  return compareDate(entry.expiryDate, referenceDate) < 0;
+  return compareDate(entry.expiryDate, referenceDate) <= 0;
 }
 function isExpiredAttendanceDate(attendanceDate, referenceDate = getTodayString()) {
   if (!attendanceDate) return true;
-  return compareDate(addDays(attendanceDate, 30), referenceDate) < 0;
+  return compareDate(addDays(attendanceDate, 30), referenceDate) <= 0;
 }
 function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(attendanceDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
