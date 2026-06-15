@@ -496,9 +496,10 @@ function renderUsageItem(usage, ledger) {
   const allocations = ledger.usageAllocations[usage.id] || [];
   const deductionText = allocations.length ? allocations.map((allocation) => `${allocation.attendanceRangeLabel}에서 ${formatDuration(allocation.minutes)}`).join(" / ") : "차감 내역 없음";
   const detailColumns = "repeat(auto-fit, minmax(150px, 1fr))";
+  const schedule = WORK_TYPES[resolveWorkTypeKey(usage.workType)];
   item.className = `list-item ${isInvalid ? "warning" : ""}`.trim();
   item.innerHTML = `
-    <div class="item-row"><div><div class="item-title">${usage.date} · ${WORK_TYPES[usage.workType].label}</div><div class="item-subtitle">${formatUsageRange(usage)}</div></div><div class="status-row"><span class="pill ${isInvalid ? "warning" : "info"}">${isInvalid ? "차감 불가" : "차감 완료"}</span></div></div>
+    <div class="item-row"><div><div class="item-title">${usage.date} · ${schedule.label}</div><div class="item-subtitle">${formatUsageRange(usage)}</div></div><div class="status-row"><span class="pill ${isInvalid ? "warning" : "info"}">${isInvalid ? "차감 불가" : "차감 완료"}</span></div></div>
     <div class="detail-grid" style="grid-template-columns:${detailColumns}"><div class="detail-box"><span>사용내역</span><strong>${formatUsageRange(usage)}</strong></div><div class="detail-box"><span>사용시간</span><strong>${formatDuration(usage.durationMinutes)}</strong></div><div class="detail-box"><span>선택 발생기록</span><strong>${getSelectedAttendanceLabel(getEffectiveUsageAttendanceIds(usage))}</strong></div><div class="detail-box"><span>차감 출처</span><strong>${deductionText}</strong></div><div class="detail-box"><span>상태</span><strong>${isInvalid ? "유효한 발생시간 부족" : "정상 저장"}</strong></div></div>
     <div class="item-actions"><button class="mini-btn" type="button" data-action="edit-usage" data-id="${usage.id}">수정</button><button class="mini-btn danger" type="button" data-action="delete-usage" data-id="${usage.id}">삭제</button></div>`;
   bindItemActions(item);
@@ -759,15 +760,16 @@ function normalizeAttendanceHeaderCell(value) {
     .replace(/[()[\]{}_.:/\\-]/g, "");
 }
 function findHeaderColumnIndex(headers, candidates) {
+  const validHeaders = headers.map((header, index) => ({ header, index })).filter(({ header }) => header);
   for (const candidate of candidates) {
     const normalizedCandidate = normalizeAttendanceHeaderCell(candidate);
-    const exactIndex = headers.findIndex((header) => header === normalizedCandidate);
-    if (exactIndex >= 0) return exactIndex;
+    const exactMatch = validHeaders.find(({ header }) => header === normalizedCandidate);
+    if (exactMatch) return exactMatch.index;
   }
   for (const candidate of candidates) {
     const normalizedCandidate = normalizeAttendanceHeaderCell(candidate);
-    const partialIndex = headers.findIndex((header) => header.includes(normalizedCandidate) || normalizedCandidate.includes(header));
-    if (partialIndex >= 0) return partialIndex;
+    const partialMatch = validHeaders.find(({ header }) => header.includes(normalizedCandidate) || normalizedCandidate.includes(header));
+    if (partialMatch) return partialMatch.index;
   }
   return -1;
 }
