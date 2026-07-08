@@ -57,7 +57,11 @@ const elements = {
   uploadBtn: document.getElementById("uploadBtn"),
   uploadResult: document.getElementById("uploadResult"),
   seedDemoBtn: document.getElementById("seedDemoBtn"),
-  resetBtn: document.getElementById("resetBtn")
+  resetBtn: document.getElementById("resetBtn"),
+  matchingSummaryBtn: document.getElementById("matchingSummaryBtn"),
+  matchingSummaryDialog: document.getElementById("matchingSummaryDialog"),
+  matchingSummaryContent: document.getElementById("matchingSummaryContent"),
+  closeMatchingSummaryBtn: document.getElementById("closeMatchingSummaryBtn")
 };
 initialize();
 function initialize() {
@@ -123,6 +127,11 @@ function bindEvents() {
   elements.uploadBtn.addEventListener("click", () => handleExcelUpload());
   elements.seedDemoBtn.addEventListener("click", seedDemoData);
   elements.resetBtn.addEventListener("click", resetAllData);
+  elements.matchingSummaryBtn.addEventListener("click", openMatchingSummaryDialog);
+  elements.closeMatchingSummaryBtn.addEventListener("click", closeMatchingSummaryDialog);
+  elements.matchingSummaryDialog.addEventListener("click", (event) => {
+    if (event.target === elements.matchingSummaryDialog) closeMatchingSummaryDialog();
+  });
 }
 function handleUsageTimeInput(target) {
   if (target === "start") syncUsageTimeField("start");
@@ -226,6 +235,7 @@ function handleAttendanceSubmit(event) {
   const record = { id: elements.attendanceId.value || createId("attendance"), date: elements.attendanceDate.value, workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked, source: "manual" };
   const validationMessage = validateAttendanceRecord(record);
   if (validationMessage) return alert(validationMessage);
+  if (isWeekendDate(record.date)) return alert("주말 근무는 계산에서 제외되므로 발생기록으로 저장할 수 없습니다.");
   const generatedMinutes = calculateGeneratedMinutes(record);
   if (generatedMinutes <= 0) return alert("발생시간이 0분인 기록은 저장할 수 없습니다.");
   const normalizedRecord = { ...record, generatedMinutes };
@@ -260,6 +270,7 @@ function handleUsageSubmit(event) {
   const record = { id: elements.usageId.value || createId("usage"), date: elements.usageDate.value, workType: elements.usageWorkType.value, startTime: normalizedStartTime, endTime: normalizedEndTime, selectedAttendanceIds };
   const validationMessage = validateUsageRecord(record);
   if (validationMessage) return alert(validationMessage);
+  if (isWeekendDate(record.date)) return alert("주말 사용기록은 계산에서 제외되므로 저장할 수 없습니다.");
   const durationMinutes = calculateUsageMinutes(record.startTime, record.endTime);
   if (durationMinutes <= 0) return alert("사용시간이 0분입니다. 30분 단위 기준으로 다시 입력하세요.");
   const simulation = buildLedger({ usageRecordOverride: { ...record, durationMinutes } });
@@ -302,12 +313,12 @@ function validateUsageRecord(record) {
 }
 function getDailyUsageMinutes(targetDate, excludeUsageId = "") {
   return state.usageRecords
-    .filter((usageRecord) => usageRecord.date === targetDate && usageRecord.id !== excludeUsageId)
+    .filter((usageRecord) => usageRecord.date === targetDate && usageRecord.id !== excludeUsageId && !isWeekendDate(usageRecord.date))
     .reduce((sum, usageRecord) => sum + (usageRecord.durationMinutes ?? calculateUsageMinutes(usageRecord.startTime, usageRecord.endTime)), 0);
 }
 function renderAttendancePreview() {
   if (!elements.attendanceWorkType.value || !elements.actualStart.value || !elements.actualEnd.value) return elements.computedEarnedLabel.textContent = "0분";
-  const minutes = calculateEarnedMinutes({ workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked });
+  const minutes = calculateEarnedMinutes({ date: elements.attendanceDate.value, workType: elements.attendanceWorkType.value, actualStart: elements.actualStart.value, actualEnd: elements.actualEnd.value, overtime: elements.overtimeChecked.checked, overtimeChecked: elements.overtimeChecked.checked });
   elements.computedEarnedLabel.textContent = formatDuration(minutes);
 }
 function renderUsagePreview() {
@@ -319,6 +330,7 @@ function renderUsagePreview() {
   renderSelectedAttendanceSummary();
 }
 function calculateEarnedMinutes(record) {
+  if (isWeekendDate(record.date)) return 0;
   const schedule = WORK_TYPES[resolveWorkTypeKey(record.workType)];
   if (!schedule) return 0;
   if (!record.actualStart || !record.actualEnd) return 0;
@@ -334,6 +346,7 @@ function calculateEarnedMinutes(record) {
 }
 function calculateGeneratedMinutes(record) { return calculateEarnedMinutes(record); }
 function buildGeneratedTimeRanges(record) {
+  if (isWeekendDate(record.date)) return [];
   const schedule = WORK_TYPES[resolveWorkTypeKey(record.workType)];
   if (!schedule) return [];
   if (!record.actualStart || !record.actualEnd) return [];
@@ -355,10 +368,13 @@ function calculateUsageMinutes(startTime, endTime) {
   return normalized ? calculateUsageMinutesExcludingLunch(normalized.start, normalized.end) : 0;
 }
 function buildLedger(options = {}) {
-  const attendanceRecords = cloneRecords(options.attendanceRecordOverride ? upsertClone(state.attendanceRecords, options.attendanceRecordOverride) : state.attendanceRecords).sort(sortByDateThenId);
+  const attendanceRecords = cloneRecords(options.attendanceRecordOverride ? upsertClone(state.attendanceRecords, options.attendanceRecordOverride) : state.attendanceRecords)
+    .filter((record) => !isWeekendDate(record.date))
+    .sort(sortByDateThenId);
   const sourceUsageRecords = options.usageRecordOverride ? upsertClone(state.usageRecords, options.usageRecordOverride) : state.usageRecords;
   const filteredUsageRecords = options.excludeUsageId ? sourceUsageRecords.filter((item) => item.id !== options.excludeUsageId) : sourceUsageRecords;
   const usageRecords = cloneRecords(filteredUsageRecords)
+    .filter((item) => !isWeekendDate(item.date))
     .map((item) => {
       const normalizedSelection = normalizeSelectedAttendanceIds(item.selectedAttendanceIds ?? item.selectedAttendanceDates ?? item.selectedAttendanceDate);
       return {
@@ -505,6 +521,87 @@ function renderUsageItem(usage, ledger) {
   bindItemActions(item);
   return item;
 }
+function openMatchingSummaryDialog() {
+  elements.matchingSummaryContent.innerHTML = renderMatchingSummaryTable(buildLedger());
+  if (typeof elements.matchingSummaryDialog.showModal === "function") {
+    elements.matchingSummaryDialog.showModal();
+  } else {
+    elements.matchingSummaryDialog.setAttribute("open", "");
+  }
+}
+function closeMatchingSummaryDialog() {
+  if (typeof elements.matchingSummaryDialog.close === "function") {
+    elements.matchingSummaryDialog.close();
+  } else {
+    elements.matchingSummaryDialog.removeAttribute("open");
+  }
+}
+function renderMatchingSummaryTable(ledger) {
+  const rows = buildMatchingSummaryRows(ledger);
+  if (!rows.length) {
+    return `<div class="empty-state"><strong>표시할 매칭 내역이 없습니다.</strong><span>유효한 평일 발생/사용 기록이 없습니다.</span></div>`;
+  }
+  const rowHtml = rows.map((row) => `
+    <tr>
+      <td>${row.attendanceDate}</td>
+      <td>${row.attendanceRange}</td>
+      <td>${formatDuration(row.earnedMinutes)}</td>
+      <td>${row.usageDate || "-"}</td>
+      <td>${row.usageRange || "-"}</td>
+      <td>${formatDuration(row.usedMinutes)}</td>
+      <td>${formatDuration(row.remainingMinutes)}</td>
+      <td><span class="pill ${row.statusClass}">${row.status}</span></td>
+    </tr>`).join("");
+  return `
+    <div class="table-scroll">
+      <table class="matching-table">
+        <thead>
+          <tr>
+            <th>발생일</th>
+            <th>발생구간</th>
+            <th>발생시간</th>
+            <th>사용일</th>
+            <th>사용시간</th>
+            <th>차감시간</th>
+            <th>잔여시간</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>${rowHtml}</tbody>
+      </table>
+    </div>`;
+}
+function buildMatchingSummaryRows(ledger) {
+  const rows = [];
+  ledger.generatedEntries
+    .filter((entry) => entry.earnedMinutes > 0)
+    .sort(sortByDateThenId)
+    .forEach((entry) => {
+      const allocations = entry.allocations || [];
+      if (!allocations.length) {
+        rows.push(createMatchingSummaryRow(entry, null, 0, entry.remainingMinutes, "미사용", "info"));
+        return;
+      }
+      allocations.forEach((allocation, index) => {
+        const remainingMinutes = index === allocations.length - 1 ? entry.remainingMinutes : 0;
+        rows.push(createMatchingSummaryRow(entry, allocation, allocation.minutes, remainingMinutes, remainingMinutes > 0 ? "일부사용" : "사용완료", remainingMinutes > 0 ? "warning" : "neutral"));
+      });
+    });
+  return rows;
+}
+function createMatchingSummaryRow(entry, allocation, usedMinutes, remainingMinutes, status, statusClass) {
+  return {
+    attendanceDate: entry.date,
+    attendanceRange: `${entry.segmentLabel} · ${formatGeneratedRanges(entry)}`,
+    earnedMinutes: entry.earnedMinutes,
+    usageDate: allocation?.usageDate || "",
+    usageRange: allocation ? formatUsageRange({ date: allocation.usageDate, startTime: allocation.usageStart, endTime: allocation.usageEnd }, allocation.minutes) : "",
+    usedMinutes,
+    remainingMinutes,
+    status,
+    statusClass
+  };
+}
 function buildLedgerRows(ledger) {
   const today = getTodayString();
   const rows = [];
@@ -618,9 +715,14 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
     const existingRecordsLength = state.attendanceRecords.length;
     let zeroMinuteExcludedCount = 0;
     let duplicateSkippedCount = 0;
+    let weekendExcludedCount = 0;
     const existingDates = new Set(state.attendanceRecords.map((record) => record.date));
     const appendedRecords = [];
     parsed.parsedRecords.forEach((record) => {
+      if (isWeekendDate(record.date)) {
+        weekendExcludedCount += 1;
+        return;
+      }
       const generatedMinutes = calculateGeneratedMinutes(record);
       if (generatedMinutes <= 0) {
         zeroMinuteExcludedCount += 1;
@@ -642,7 +744,7 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
     const finalSavedCount = state.attendanceRecords.length;
     const finalRenderedCount = buildLedger().generatedEntries.filter((entry) => entry.earnedMinutes > 0).length;
     const sheetLabel = parsed.sheetName ? `, 선택 시트 ${parsed.sheetName}` : "";
-    elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건${sheetLabel}`;
+    elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 주말 제외 ${weekendExcludedCount}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건${sheetLabel}`;
   } catch (error) {
     console.error(error);
     elements.uploadResult.textContent = `업로드 실패: ${error.message}`;
@@ -1051,6 +1153,11 @@ function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayStri
 }
 function isUsageHistoryVisible(usageDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(usageDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
+}
+function isWeekendDate(dateString) {
+  if (!dateString) return false;
+  const day = new Date(`${dateString}T00:00:00`).getDay();
+  return day === 0 || day === 6;
 }
 function resetAllData() {
   if (!confirm("모든 localStorage 데이터를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;

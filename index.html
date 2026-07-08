@@ -199,7 +199,24 @@
         <div id="timelineList" class="list-stack"></div>
       </section>
     </main>
+
+    <footer class="bottom-actions">
+      <button id="matchingSummaryBtn" class="primary-btn" type="button">발생/사용 매칭표 보기</button>
+    </footer>
   </div>
+
+  <dialog id="matchingSummaryDialog" class="matching-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header">
+        <div>
+          <p class="section-kicker">매칭표</p>
+          <h2>발생시간 / 사용시간 매칭 현황</h2>
+        </div>
+        <button id="closeMatchingSummaryBtn" class="mini-btn" type="button">닫기</button>
+      </div>
+      <div id="matchingSummaryContent" class="matching-summary-content"></div>
+    </div>
+  </dialog>
 
   <template id="emptyStateTemplate">
     <div class="empty-state">
