@@ -1,0 +1,73 @@
+# 배포 설정 가이드 (관리자용, 최초 1회)
+
+이 문서대로 설정하면 직원들이 각자 회사 구글 계정(`@worldvision.or.kr`)으로 로그인해서,
+어느 컴퓨터에서 접속하든 자신의 특정일 근무기록을 동일하게 볼 수 있습니다.
+
+설정 전까지는 기존과 동일하게 브라우저(localStorage)에만 저장되는 "로컬 전용 모드"로 자동 동작하니,
+아래 순서를 급하게 하지 않아도 됩니다.
+
+## 1. 데이터를 저장할 Google Sheets 만들기
+
+1. Google Drive에서 새 스프레드시트를 만듭니다. 이름 예: `WV_특정일근무_DB`
+2. 상단 메뉴 **확장 프로그램 > Apps Script** 를 클릭합니다.
+3. 기본으로 열린 `Code.gs` 파일 내용을 전부 지우고, 이 저장소의 `apps-script/Code.gs` 내용을 붙여넣습니다.
+4. 코드 상단의 설정값을 수정합니다.
+   - `ALLOWED_DOMAIN`: 로그인 허용할 구글 워크스페이스 도메인 (기본값 `"worldvision.or.kr"`으로 이미 설정됨). 전 직원이 회사 구글 계정을 쓴다면 그대로 두면 됩니다.
+   - `OAUTH_CLIENT_ID`: 아래 2단계에서 발급받은 클라이언트 ID를 붙여넣습니다. (2단계를 먼저 하고 다시 와서 채워도 됩니다.)
+
+## 2. Google Cloud Console에서 OAuth 클라이언트 ID 발급받기
+
+1. https://console.cloud.google.com/ 접속 (회사 구글 계정으로 로그인).
+2. 새 프로젝트 생성 (예: `wv-time-manager`).
+3. 좌측 메뉴 **API 및 서비스 > OAuth 동의 화면**
+   - User Type: 조직 내부에서만 쓸 경우 **내부(Internal)** 선택 (Google Workspace 조직일 때만 표시됨). 아니라면 **외부(External)** 선택 후 테스트 사용자로 직원 이메일을 등록하거나 게시(Publish)합니다.
+   - 앱 이름, 지원 이메일 등 필수 항목 입력 후 저장.
+4. 좌측 메뉴 **API 및 서비스 > 사용자 인증 정보 > 사용자 인증 정보 만들기 > OAuth 클라이언트 ID**
+   - 애플리케이션 유형: **웹 애플리케이션**
+   - 승인된 자바스크립트 원본(Authorized JavaScript origins)에 이 사이트가 열리는 주소를 추가합니다.
+     - 예: `https://minhyuk34.github.io`
+     - 로컬에서 테스트할 경우 `http://localhost:4173` 등도 추가 가능
+   - 리디렉션 URI는 필요 없습니다 (비워둠).
+5. 생성된 **클라이언트 ID**(`xxxxxxxxxx.apps.googleusercontent.com` 형식)를 복사합니다.
+6. 이 클라이언트 ID를:
+   - `config.js`의 `GOOGLE_CLIENT_ID` 값에 붙여넣고,
+   - `apps-script/Code.gs`의 `OAUTH_CLIENT_ID` 값(스프레드시트에 붙여넣은 코드)에도 동일하게 붙여넣습니다.
+
+## 3. Apps Script를 웹 앱으로 배포
+
+1. Apps Script 편집기 우측 상단 **배포 > 새 배포**
+2. 유형 선택(톱니바퀴) > **웹 앱**
+3. 설정:
+   - **실행 계정(Execute as)**: 나 (Me) — 소유자 권한으로 시트에 접근합니다.
+   - **액세스 권한이 있는 사용자(Who has access)**: **모든 사용자(Anyone)**
+     - (로그인 여부는 Apps Script가 아니라 앱 내부에서 ID 토큰으로 자체 검증하므로, 이 값은 "모든 사용자"로 둬야 프론트엔드에서 fetch 호출이 정상 동작합니다. 대신 `Code.gs`의 `ALLOWED_DOMAIN`이 실제 접근 제어를 담당합니다.)
+4. **배포**를 누르고, 권한 승인 화면이 나오면 본인 계정으로 승인합니다.
+5. 배포 완료 후 나오는 **웹 앱 URL**(`https://script.google.com/macros/s/xxxxx/exec`)을 복사합니다.
+6. 이 URL을 `config.js`의 `API_BASE_URL` 값에 붙여넣습니다.
+
+> 코드를 수정할 때마다(Code.gs 변경 시) **배포 > 배포 관리 > 수정(연필 아이콘) > 새 버전** 으로 다시 배포해야 반영됩니다. URL은 그대로 유지됩니다.
+
+## 4. 사이트에 설정 반영 & 배포
+
+1. 최종 수정된 `config.js` (아래처럼 값이 채워짐):
+   ```js
+   window.APP_CONFIG = {
+     GOOGLE_CLIENT_ID: "xxxxxxxxxx.apps.googleusercontent.com",
+     API_BASE_URL: "https://script.google.com/macros/s/xxxxx/exec"
+   };
+   ```
+2. 변경된 `index.html`, `style.css`, `script.js`, `config.js` 를 기존 GitHub 저장소(`minhyuk34/WV_time`)에 커밋 & 푸시합니다.
+3. GitHub Pages가 자동으로 재배포됩니다 (보통 1~2분).
+4. `https://minhyuk34.github.io/WV_time/` 접속 → 이제 "회사 구글 계정으로 로그인" 화면이 뜨고, 로그인하면 시트에 저장된 본인 데이터가 표시됩니다.
+
+## 5. 확인 방법
+
+- 직원 A가 회사 컴퓨터에서 로그인 후 발생기록을 입력합니다.
+- 직원 A가 집 컴퓨터(또는 다른 브라우저)에서 같은 계정으로 로그인하면 방금 입력한 기록이 그대로 보여야 합니다.
+- 스프레드시트의 `UserData` 시트를 열어보면 사용자 이메일별로 한 행씩 JSON 데이터가 쌓이는 것을 확인할 수 있습니다 (관리자가 직접 열람 가능하므로, 필요시 스프레드시트 공유 권한을 최소화하세요).
+
+## 알아두어야 할 제약사항
+
+- **동시 편집 충돌**: 같은 사용자가 두 기기에서 "동시에" 저장하면 나중에 저장이 완료된 쪽 데이터로 덮어써집니다(마지막 저장 우선). 화면 우측 상단 "새로고침" 버튼으로 항상 최신 데이터를 다시 불러올 수 있습니다.
+- **속도**: Google Sheets/Apps Script 기반이라 저장/불러오기에 device당 0.5~2초 정도의 지연이 있을 수 있습니다. 근무기록 관리 용도에는 충분한 속도입니다.
+- **로그인 없이 접속**: `config.js`의 두 값이 비어 있으면 로그인 없이 기존처럼 이 브라우저에만 저장되는 모드로 자동 전환됩니다. 되돌리고 싶으면 두 값을 다시 비우면 됩니다.
