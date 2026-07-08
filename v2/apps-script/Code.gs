@@ -11,7 +11,7 @@
 // index.html에서 로그인할 때 쓰는 OAuth 클라이언트 ID와 동일해야 합니다.
 const OAUTH_CLIENT_ID = "여기에_Google_OAuth_클라이언트ID_입력";
 // 회사 구글 워크스페이스 도메인. 이 도메인 계정만 로그인 허용합니다. 제한하지 않으려면 "" 로 두세요.
-const ALLOWED_DOMAIN = "worldvision.or.kr";
+const ALLOWED_DOMAIN = "worldvision.kr";
 
 const SHEET_NAME = "UserData";
 const LOCK_TIMEOUT_MS = 10000;
