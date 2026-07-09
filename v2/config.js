@@ -5,5 +5,5 @@ window.APP_CONFIG = {
   GOOGLE_CLIENT_ID: "252739518185-6gahljodsr32a38qa79nodrjs4v0kov7.apps.googleusercontent.com",
 
   // Google Apps Script를 "웹 앱"으로 배포한 뒤 나오는 URL (…/exec 로 끝남)
-  API_BASE_URL: ""
+  API_BASE_URL: "https://script.google.com/macros/s/AKfycbzipIG_nY3Wl1zZ2s4uugrXiR4LRAjX_Ibl1F7W3HirafuOs5kaVLmgBDnU61PdJwN8/exec"
 };
