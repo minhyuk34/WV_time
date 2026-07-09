@@ -76,7 +76,9 @@ function getUserDataSheet() {
 }
 
 function findUserRowIndex(sheet, email) {
-  const emails = sheet.getRange(2, 1, Math.max(sheet.getLastRow() - 1, 0), 1).getValues();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1; // header row only, no data rows yet
+  const emails = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = 0; i < emails.length; i++) {
     if (emails[i][0] === email) return i + 2; // 1-indexed, +1 for header row
   }
