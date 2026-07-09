@@ -134,6 +134,7 @@ async function handleGoogleCredential(response) {
     elements.authStatusText.textContent = `로그인 실패: ${error.message}`;
     return;
   }
+  await maybeImportLegacyLocalData();
   elements.authGate.hidden = true;
   elements.appShell.hidden = false;
   elements.userBadge.hidden = false;
@@ -141,6 +142,27 @@ async function handleGoogleCredential(response) {
   elements.userAvatar.src = currentUser.picture;
   setSyncStatus("", "동기화 완료");
   initialize();
+}
+async function maybeImportLegacyLocalData() {
+  const hasServerData = state.attendanceRecords.length > 0 || state.usageRecords.length > 0;
+  if (hasServerData) return;
+  const legacy = loadState();
+  const hasLegacyData = legacy.attendanceRecords.length > 0 || legacy.usageRecords.length > 0;
+  if (!hasLegacyData) return;
+  const shouldImport = confirm(
+    `이 브라우저에 저장되어 있던 기존 데이터(발생기록 ${legacy.attendanceRecords.length}건, 사용기록 ${legacy.usageRecords.length}건)를 서버로 가져올까요?`
+  );
+  if (!shouldImport) return;
+  setSyncStatus("syncing", "기존 데이터 업로드 중...");
+  try {
+    await apiSave(currentUser.idToken, legacy.attendanceRecords, legacy.usageRecords);
+    state = legacy;
+    localStorage.removeItem(STORAGE_KEY);
+    setSyncStatus("", "동기화 완료");
+  } catch (error) {
+    setSyncStatus("error", `가져오기 실패: ${error.message}`);
+    alert(`기존 데이터를 서버로 옮기지 못했습니다: ${error.message}\n이 브라우저의 기존 데이터는 삭제하지 않았으니 다음 로그인 때 다시 시도할 수 있습니다.`);
+  }
 }
 function signOut() {
   if (window.google?.accounts?.id) window.google.accounts.id.disableAutoSelect();
