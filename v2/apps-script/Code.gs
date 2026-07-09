@@ -9,7 +9,7 @@
 
 // ===== 설정: 아래 두 값을 채우세요 =====
 // index.html에서 로그인할 때 쓰는 OAuth 클라이언트 ID와 동일해야 합니다.
-const OAUTH_CLIENT_ID = "여기에_Google_OAuth_클라이언트ID_입력";
+const OAUTH_CLIENT_ID = "252739518185-6gahljodsr32a38qa79nodrjs4v0kov7.apps.googleusercontent.com";
 // 회사 구글 워크스페이스 도메인. 이 도메인 계정만 로그인 허용합니다. 제한하지 않으려면 "" 로 두세요.
 const ALLOWED_DOMAIN = "";
 
