@@ -105,6 +105,7 @@ function enterLocalOnlyMode() {
   elements.localModeBanner.hidden = false;
   elements.appShell.hidden = false;
   initialize();
+  importFromLocationHash();
 }
 function bindStaticEvents() {
   elements.signOutBtn.addEventListener("click", signOut);
@@ -145,6 +146,7 @@ async function handleGoogleCredential(response) {
   elements.userAvatar.src = currentUser.picture;
   setSyncStatus("", "동기화 완료");
   initialize();
+  importFromLocationHash();
 }
 async function maybeImportLegacyLocalData() {
   const hasServerData = state.attendanceRecords.length > 0 || state.usageRecords.length > 0;
@@ -897,44 +899,62 @@ async function handleExcelUpload(file = elements.excelFile.files[0]) {
   if (!file) return alert("업로드할 파일을 선택하세요.");
   try {
     const parsed = await parseSpreadsheetFile(file);
-    if (!parsed.parsedRecords.length) throw new Error("업로드 가능한 근태 데이터가 없습니다.");
-    const existingRecordsLength = state.attendanceRecords.length;
-    let zeroMinuteExcludedCount = 0;
-    let duplicateSkippedCount = 0;
-    let weekendExcludedCount = 0;
-    const existingDates = new Set(state.attendanceRecords.map((record) => record.date));
-    const appendedRecords = [];
-    parsed.parsedRecords.forEach((record) => {
-      if (isWeekendDate(record.date)) {
-        weekendExcludedCount += 1;
-        return;
-      }
-      const generatedMinutes = calculateGeneratedMinutes(record);
-      if (generatedMinutes <= 0) {
-        zeroMinuteExcludedCount += 1;
-        return;
-      }
-      if (existingDates.has(record.date)) {
-        duplicateSkippedCount += 1;
-        return;
-      }
-      existingDates.add(record.date);
-      appendedRecords.push({ ...record, generatedMinutes });
-    });
-    state.attendanceRecords = [...state.attendanceRecords, ...appendedRecords];
-    refreshAutoUsageSelections();
-    saveAttendanceRecords();
-    populateUsageAttendanceOptions();
-    rerenderAll();
-    const appendedCount = appendedRecords.length;
-    const finalSavedCount = state.attendanceRecords.length;
-    const finalRenderedCount = buildLedger().generatedEntries.filter((entry) => entry.earnedMinutes > 0).length;
     const sheetLabel = parsed.sheetName ? `, 선택 시트 ${parsed.sheetName}` : "";
-    elements.uploadResult.textContent = `업로드 완료: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건, 주말 제외 ${weekendExcludedCount}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건${sheetLabel}`;
+    applyParsedAttendanceRecords(parsed.parsedRecords, `실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건${sheetLabel}`);
   } catch (error) {
     console.error(error);
     elements.uploadResult.textContent = `업로드 실패: ${error.message}`;
     alert(`업로드 실패: ${error.message}`);
+  }
+}
+function applyParsedAttendanceRecords(parsedRecords, summaryPrefix) {
+  if (!parsedRecords.length) throw new Error("업로드 가능한 근태 데이터가 없습니다.");
+  let zeroMinuteExcludedCount = 0;
+  let duplicateSkippedCount = 0;
+  let weekendExcludedCount = 0;
+  const existingDates = new Set(state.attendanceRecords.map((record) => record.date));
+  const appendedRecords = [];
+  parsedRecords.forEach((record) => {
+    if (isWeekendDate(record.date)) {
+      weekendExcludedCount += 1;
+      return;
+    }
+    const generatedMinutes = calculateGeneratedMinutes(record);
+    if (generatedMinutes <= 0) {
+      zeroMinuteExcludedCount += 1;
+      return;
+    }
+    if (existingDates.has(record.date)) {
+      duplicateSkippedCount += 1;
+      return;
+    }
+    existingDates.add(record.date);
+    appendedRecords.push({ ...record, generatedMinutes });
+  });
+  state.attendanceRecords = [...state.attendanceRecords, ...appendedRecords];
+  refreshAutoUsageSelections();
+  saveAttendanceRecords();
+  populateUsageAttendanceOptions();
+  rerenderAll();
+  const appendedCount = appendedRecords.length;
+  const finalSavedCount = state.attendanceRecords.length;
+  const finalRenderedCount = buildLedger().generatedEntries.filter((entry) => entry.earnedMinutes > 0).length;
+  elements.uploadResult.textContent = `업로드 완료: ${summaryPrefix}, 주말 제외 ${weekendExcludedCount}건, 0분 제외 ${zeroMinuteExcludedCount}건, 기존 날짜 중복 ${duplicateSkippedCount}건, 신규 추가 ${appendedCount}건, 최종 저장 ${finalSavedCount}건, 최종 표시 ${finalRenderedCount}건`;
+}
+function importFromLocationHash() {
+  const hash = window.location.hash || "";
+  if (!hash.startsWith("#import=")) return;
+  const encoded = hash.slice("#import=".length);
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  try {
+    const json = decodeURIComponent(escape(atob(decodeURIComponent(encoded))));
+    const rows = JSON.parse(json);
+    const parsed = parseAttendanceXlsRows(rows);
+    applyParsedAttendanceRecords(parsed.parsedRecords, `북마크릿 가져오기: 실제 데이터 ${parsed.dataRowCount}건, 유효 파싱 ${parsed.parsedRecords.length}건`);
+  } catch (error) {
+    console.error(error);
+    elements.uploadResult.textContent = `가져오기 실패: ${error.message}`;
+    alert(`북마크릿 가져오기 실패: ${error.message}`);
   }
 }
 async function parseSpreadsheetFile(file) {
