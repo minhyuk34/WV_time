@@ -280,7 +280,11 @@ function bindEvents() {
     normalizeUsageAttendanceSelects(select);
     renderSelectedAttendanceSummary();
   }));
-  elements.todayWorkType.addEventListener("change", renderSummary);
+  elements.todayWorkType.addEventListener("change", () => {
+    elements.usageWorkType.value = elements.todayWorkType.value;
+    renderSummary();
+    renderUsagePreview();
+  });
   elements.uploadBtn.addEventListener("click", () => handleExcelUpload());
   elements.seedDemoBtn.addEventListener("click", seedDemoData);
   elements.resetBtn.addEventListener("click", resetAllData);
