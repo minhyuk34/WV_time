@@ -373,6 +373,16 @@ input:focus, select:focus {
   font-size: 14px;
 }
 
+.notice-text {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .text-link {
   color: var(--primary);
   text-decoration: none;
@@ -482,7 +492,45 @@ input:focus, select:focus {
 .bottom-actions {
   display: flex;
   justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 22px 0 0;
+}
+
+.help-content {
+  display: grid;
+  gap: 16px;
+  max-height: min(560px, calc(100vh - 160px));
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.help-section {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.help-section h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.help-section p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.help-section.highlight {
+  background: var(--warning-soft);
+  border-color: rgba(184, 112, 0, 0.25);
+}
+
+.help-section.highlight p, .help-section.highlight strong {
+  color: var(--warning);
 }
 
 .matching-dialog {

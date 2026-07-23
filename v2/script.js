@@ -76,7 +76,10 @@ const elements = {
   matchingSummaryBtn: document.getElementById("matchingSummaryBtn"),
   matchingSummaryDialog: document.getElementById("matchingSummaryDialog"),
   matchingSummaryContent: document.getElementById("matchingSummaryContent"),
-  closeMatchingSummaryBtn: document.getElementById("closeMatchingSummaryBtn")
+  closeMatchingSummaryBtn: document.getElementById("closeMatchingSummaryBtn"),
+  helpBtn: document.getElementById("helpBtn"),
+  helpDialog: document.getElementById("helpDialog"),
+  closeHelpBtn: document.getElementById("closeHelpBtn")
 };
 boot();
 function isServerModeEnabled() {
@@ -293,6 +296,25 @@ function bindEvents() {
   elements.matchingSummaryDialog.addEventListener("click", (event) => {
     if (event.target === elements.matchingSummaryDialog) closeMatchingSummaryDialog();
   });
+  elements.helpBtn.addEventListener("click", openHelpDialog);
+  elements.closeHelpBtn.addEventListener("click", closeHelpDialog);
+  elements.helpDialog.addEventListener("click", (event) => {
+    if (event.target === elements.helpDialog) closeHelpDialog();
+  });
+}
+function openHelpDialog() {
+  if (typeof elements.helpDialog.showModal === "function") {
+    elements.helpDialog.showModal();
+  } else {
+    elements.helpDialog.setAttribute("open", "");
+  }
+}
+function closeHelpDialog() {
+  if (typeof elements.helpDialog.close === "function") {
+    elements.helpDialog.close();
+  } else {
+    elements.helpDialog.removeAttribute("open");
+  }
 }
 function handleUsageTimeInput(target) {
   if (target === "start") syncUsageTimeField("start");

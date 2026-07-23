@@ -105,6 +105,9 @@
             <input id="overtimeChecked" type="checkbox">
             <span>시간외근무</span>
           </label>
+          <div class="full-width notice-text">
+            ⚠ <strong>시간외근무를 진행한 경우 반드시 체크</strong>하셔야 발생시간에 정상 반영됩니다.
+          </div>
           <div class="full-width computed-panel">
             <span>예상 발생시간</span>
             <strong id="computedEarnedLabel">0분</strong>
@@ -197,6 +200,9 @@
         </div>
 
         <div class="upload-panel">
+          <p class="notice-text">
+            '마이P&C-전자결재-근무시간-출퇴근관리'에서 받은 엑셀파일을 그대로 업로드 하시면 자동반영됩니다.
+          </p>
           <input id="excelFile" type="file" accept=".xlsx,.xls,.xml,.csv,.html">
           <button id="uploadBtn" class="primary-btn" type="button">파일 반영</button>
           <p class="helper-text">
@@ -230,9 +236,48 @@
     </main>
 
     <footer class="bottom-actions">
+      <button id="helpBtn" class="ghost-btn" type="button">사용법 안내</button>
       <button id="matchingSummaryBtn" class="primary-btn" type="button">발생/사용 매칭표 보기</button>
     </footer>
   </div>
+
+  <dialog id="helpDialog" class="matching-dialog">
+    <div class="dialog-panel">
+      <div class="dialog-header">
+        <div>
+          <p class="section-kicker">도움말</p>
+          <h2>사용법 안내</h2>
+        </div>
+        <button id="closeHelpBtn" class="mini-btn" type="button">닫기</button>
+      </div>
+      <div class="help-content">
+        <section class="help-section">
+          <h3>1. 발생시간이란?</h3>
+          <p>근무유형별 지정 출퇴근시간보다 <strong>일찍 출근</strong>했거나 <strong>늦게 퇴근</strong>한 시간이 30분 단위로 절사되어 "특정일 시간"으로 쌓입니다. 예) C형(09:00~18:00)인데 08:00에 출근하면 1시간이 발생합니다.</p>
+        </section>
+        <section class="help-section highlight">
+          <h3>2. 시간외근무 체크 — 반드시 확인하세요</h3>
+          <p><strong>시간외근무(초과근무)를 진행한 날은 발생기록 입력 시 "시간외근무"를 꼭 체크</strong>해야 합니다. 체크하지 않으면 정규 퇴근시간 기준으로만 계산되어, 실제로 늦게까지 근무했더라도 발생시간에 반영되지 않을 수 있습니다.</p>
+        </section>
+        <section class="help-section">
+          <h3>3. 사용시간이란?</h3>
+          <p>쌓인 특정일 시간을 조퇴·외출 등으로 사용하는 기록입니다. 30분 단위로 입력하며, 점심시간(12:00~13:00)은 자동으로 빠집니다. 하루 최대 4시간(240분)까지 사용할 수 있습니다.</p>
+        </section>
+        <section class="help-section">
+          <h3>4. 차감 순서와 만료</h3>
+          <p>사용시간은 먼저 발생한 기록부터 순서대로(FIFO) 자동 차감됩니다. 필요하면 "차감할 발생기록 날짜"에서 원하는 기록을 직접 선택할 수도 있습니다. 발생한 특정일 시간은 <strong>발생일로부터 30일</strong>이 지나면 자동으로 만료되어 사용할 수 없습니다.</p>
+        </section>
+        <section class="help-section">
+          <h3>5. 엑셀 업로드</h3>
+          <p>'마이P&C-전자결재-근무시간-출퇴근관리'에서 받은 엑셀파일을 그대로 업로드하면 자동으로 발생기록에 반영됩니다. 같은 날짜가 이미 저장되어 있으면 중복으로 추가되지 않고 기존 기록이 유지됩니다.</p>
+        </section>
+        <section class="help-section">
+          <h3>6. 여러 컴퓨터에서 이용하기</h3>
+          <p>구글 계정으로 로그인하면 어느 컴퓨터에서 접속하든 같은 근무기록을 확인·입력할 수 있습니다. 우측 상단 "새로고침" 버튼으로 언제든 서버의 최신 데이터를 다시 불러올 수 있습니다.</p>
+        </section>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="matchingSummaryDialog" class="matching-dialog">
     <div class="dialog-panel">
