@@ -820,7 +820,7 @@ function renderTimelineItem(row) {
   item.className = "list-item";
   item.innerHTML = `
     <div class="item-row"><div><div class="item-title">${row.type}</div><div class="item-subtitle">${row.subtitle || "사용기록 1건 기준 연결 내역"}</div></div><span class="pill ${flowPillClass}">${row.flowLabel}</span></div>
-    <div class="detail-grid"><div class="detail-box"><span>사용내역</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>발생내역</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>${amountLabel}</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
+    <div class="detail-grid"><div class="detail-box"><span>발생내역(근거일자)</span><strong>${row.attendanceItems.join("<br>")}</strong></div><div class="detail-box"><span>사용내역(신청내역)</span><strong>${row.usageLabel}</strong></div><div class="detail-box"><span>${amountLabel}</span><strong>${formatDuration(row.minutes)}</strong></div><div class="detail-box"><span>흐름</span><strong>${row.flowLabel}</strong></div></div>
     ${actionHtml}`;
   bindItemActions(item);
   return item;
