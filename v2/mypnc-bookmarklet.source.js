@@ -8,8 +8,13 @@
  * 대상 화면 DOM 구조 (IBSheet/Pumpkin 그리드):
  * - .pumpkinBodyLeft table.pumpkinSection : 고정열(번호~휴일)
  * - .pumpkinBodyMid  table.pumpkinSection : 스크롤열(근무유형~예외사유)
- * - 각 표의 첫 <tr>은 숨겨진 접근성용 <th> 헤더 목록 (열 이름 인식용)
  * - 데이터 행은 tr.pumpkinDataRow, Left/Mid가 같은 행 순서로 1:1 대응
+ *
+ * 주의: 이 그리드는 헤더 <th>가 "라벨+빈 스페이서" 2개씩 짝지어 있는 반면
+ * 데이터 <td>는 colspan으로 합쳐져 1개씩만 있어서, 헤더 인덱스를 그대로
+ * 데이터 인덱스로 쓸 수 없습니다. 그래서 열 위치는 실제 화면에서 확인한
+ * 고정 인덱스를 기본으로 쓰고, 내용 패턴(날짜/시간 모양)으로 검증한 뒤
+ * 안 맞으면 행 전체를 스캔해서 찾는 방식으로 이중 안전장치를 둡니다.
  */
 (function () {
   // 화면이 iframe(하위 프레임) 안에 있을 수 있어서, 최상위 문서부터 시작해 모든 프레임을 재귀적으로 뒤집니다.
@@ -43,41 +48,55 @@
     return;
   }
 
-  function headerIndex(table, keyword, useLast) {
-    var headerRow = table.querySelector('tr');
-    var ths = headerRow.querySelectorAll('th');
-    var found = -1;
-    var target = keyword.replace(/\s+/g, '');
-    for (var i = 0; i < ths.length; i++) {
-      var span = ths[i].querySelector('span');
-      var text = (span ? span.textContent : ths[i].textContent || '').replace(/\s+/g, '');
-      if (text.indexOf(target) !== -1) {
-        found = i;
-        if (!useLast) break;
-      }
-    }
-    return found;
-  }
-
-  var dateIdx = headerIndex(leftTable, '근무일자', false);
-  // 근무유형 헤더가 3번(코드/라벨/라벨) 나오는데, 사람이 읽는 라벨(A형(07:00~16:00))이 마지막에 있어 useLast=true
-  var workTypeIdx = headerIndex(midTable, '근무유형', true);
-  var startIdx = headerIndex(midTable, '출퇴근카드출근일시', false);
-  var endIdx = headerIndex(midTable, '출퇴근카드퇴근일시', false);
-
-  if (dateIdx < 0 || startIdx < 0 || endIdx < 0) {
-    alert('표 열 구성을 인식하지 못했습니다 (화면 구조가 바뀐 것 같습니다). 개발자에게 문의하세요.');
-    return;
-  }
-
   function dataRows(table) {
     return Array.prototype.slice.call(table.querySelectorAll('tr.pumpkinDataRow'));
   }
-  function cellText(row, idx) {
-    var cells = row.querySelectorAll('td');
-    var cell = cells[idx];
-    if (!cell) return '';
-    return cell.textContent.replace(/ /g, '').trim();
+  function cellsOf(row) {
+    return Array.prototype.slice.call(row.querySelectorAll('td'));
+  }
+  function cellText(cell) {
+    return cell ? cell.textContent.replace(/ /g, ' ').trim() : '';
+  }
+  var DATE_RE = /^\d{4}\.\d{2}\.\d{2}$/;
+  var DATETIME_RE = /^\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}$/;
+  var WORKTYPE_RE = /^[A-D](-1)?형\(\d{2}:\d{2}~\d{2}:\d{2}\)$/;
+
+  // 근무일자: 실제 화면에서 확인한 고정 위치(12번째 td)를 먼저 시도하고,
+  // 날짜 모양이 아니면 행 전체에서 날짜 모양 셀을 찾습니다.
+  function findDate(cells) {
+    var candidate = cellText(cells[12]);
+    if (DATE_RE.test(candidate)) return candidate;
+    for (var i = 0; i < cells.length; i++) {
+      var text = cellText(cells[i]);
+      if (DATE_RE.test(text)) return text;
+    }
+    return '';
+  }
+
+  // 출퇴근카드 출근/퇴근일시: 고정 위치(8, 9번째 td)를 먼저 시도.
+  // 안 맞으면 행에서 날짜+시간 모양 셀들을 순서대로 모아서, 세 번째/네 번째를
+  // 출퇴근카드 값으로 사용합니다 (첫 두 개는 "정상근무기준시간" 출근/퇴근).
+  function findStartEnd(cells) {
+    var start = cellText(cells[8]);
+    var end = cellText(cells[9]);
+    if (DATETIME_RE.test(start)) return { start: start, end: DATETIME_RE.test(end) ? end : '' };
+    var matches = [];
+    for (var i = 0; i < cells.length; i++) {
+      var text = cellText(cells[i]);
+      if (DATETIME_RE.test(text)) matches.push(text);
+    }
+    return { start: matches[2] || '', end: matches[3] || '' };
+  }
+
+  // 근무유형(예: "A형(07:00~16:00)"): 고정 위치(2 또는 3번째 td)를 먼저 시도.
+  function findWorkType(cells) {
+    var candidate = cellText(cells[2]) || cellText(cells[3]);
+    if (WORKTYPE_RE.test(candidate)) return candidate;
+    for (var i = 0; i < cells.length; i++) {
+      var text = cellText(cells[i]);
+      if (WORKTYPE_RE.test(text)) return text;
+    }
+    return '';
   }
 
   var leftRows = dataRows(leftTable);
@@ -86,13 +105,14 @@
   for (var r = 0; r < leftRows.length; r++) {
     var midRow = midRows[r];
     if (!midRow) continue;
-    var dateText = cellText(leftRows[r], dateIdx);
-    var startText = cellText(midRow, startIdx);
-    var endText = cellText(midRow, endIdx);
-    var workTypeText = workTypeIdx >= 0 ? cellText(midRow, workTypeIdx) : '';
-    // 출근 기록이 없는 행(휴일 등)은 건너뜀
-    if (!dateText || !startText) continue;
-    records.push([dateText, workTypeText, startText, endText]);
+    var leftCells = cellsOf(leftRows[r]);
+    var midCells = cellsOf(midRow);
+    var dateText = findDate(leftCells);
+    var times = findStartEnd(midCells);
+    var workTypeText = findWorkType(midCells);
+    // 출근 기록이 없는 행(휴일, 미래 날짜 등)은 건너뜀
+    if (!dateText || !times.start) continue;
+    records.push([dateText, workTypeText, times.start, times.end]);
   }
 
   if (!records.length) {
