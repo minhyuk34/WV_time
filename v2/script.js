@@ -1347,6 +1347,7 @@ function isWeekendDate(dateString) {
 }
 function resetAllData() {
   if (!confirm("모든 데이터를 삭제할까요? 이 작업은 되돌릴 수 없습니다.")) return;
+  if (!confirm("정말로 초기화하시겠습니까? 삭제하면 복구할 수 없습니다.")) return;
   state.attendanceRecords = [];
   state.usageRecords = [];
   saveState();

@@ -135,6 +135,13 @@ button, input, select { font: inherit; }
 
 .hero-card h1, .card h2 { margin: 0; }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .hero-description {
   margin: 12px 0 0;
   max-width: 680px;
@@ -381,6 +388,21 @@ input:focus, select:focus {
   color: var(--warning);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.myp-guide {
+  margin-top: 14px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.myp-guide ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.myp-guide li {
+  margin-top: 2px;
 }
 
 .text-link {
