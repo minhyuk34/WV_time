@@ -241,6 +241,20 @@ button, input, select { font: inherit; }
 
 .wide-card { grid-column: 1 / -1; }
 
+.section-attendance {
+  border-left: 4px solid var(--primary);
+  background: linear-gradient(135deg, #eff6ff, #ffffff 35%);
+}
+
+.section-attendance .section-kicker { color: var(--primary); }
+
+.section-timeline {
+  border-left: 4px solid #7c3aed;
+  background: linear-gradient(135deg, #f5f3ff, #ffffff 35%);
+}
+
+.section-timeline .section-kicker { color: #7c3aed; }
+
 .card { padding: 24px; }
 
 .card-header {
