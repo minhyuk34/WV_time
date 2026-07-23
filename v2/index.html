@@ -45,11 +45,21 @@
           <button id="signOutBtn" class="ghost-btn" type="button">로그아웃</button>
         </div>
         <button id="seedDemoBtn" class="secondary-btn" type="button">샘플 데이터 넣기</button>
-        <button id="resetBtn" class="danger-btn" type="button">데이터 초기화</button>
+        <div class="danger-zone">
+          <button id="resetBtn" class="danger-btn" type="button">데이터 초기화</button>
+        </div>
       </div>
     </header>
 
     <section class="summary-grid">
+      <article class="summary-card accent-green">
+        <label class="inline-field">
+          <span>오늘 근무유형</span>
+          <select id="todayWorkType"></select>
+        </label>
+        <span class="summary-meta">하루 최대 사용 가능 시간은 4시간으로 제한됩니다.</span>
+      </article>
+
       <article class="summary-card accent-blue">
         <p class="summary-label">총 남은 특정일 시간</p>
         <strong id="totalRemainingLabel" class="summary-value">0분</strong>
@@ -60,14 +70,6 @@
         <p class="summary-label">오늘 퇴근 가능 시간</p>
         <strong id="leaveTimeLabel" class="summary-value">계산 전</strong>
         <span id="leaveTimeMeta" class="summary-meta">오늘 근무유형을 선택하세요.</span>
-      </article>
-
-      <article class="summary-card accent-green">
-        <label class="inline-field">
-          <span>오늘 근무유형</span>
-          <select id="todayWorkType"></select>
-        </label>
-        <span class="summary-meta">하루 최대 사용 가능 시간은 4시간으로 제한됩니다.</span>
       </article>
     </section>
 
@@ -185,7 +187,7 @@
         </form>
       </section>
 
-      <section class="card">
+      <section class="card wide-card">
         <div class="card-header">
           <div>
             <p class="section-kicker">업로드</p>
