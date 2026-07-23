@@ -12,8 +12,29 @@
  * - 데이터 행은 tr.pumpkinDataRow, Left/Mid가 같은 행 순서로 1:1 대응
  */
 (function () {
+  // 화면이 iframe(하위 프레임) 안에 있을 수 있어서, 최상위 문서부터 시작해 모든 프레임을 재귀적으로 뒤집니다.
+  function findInDocument(doc, selector) {
+    try {
+      var found = doc.querySelector(selector);
+      if (found) return found;
+    } catch (e) {
+      return null;
+    }
+    var frames = doc.querySelectorAll('iframe, frame');
+    for (var i = 0; i < frames.length; i++) {
+      try {
+        var innerDoc = frames[i].contentDocument;
+        if (!innerDoc) continue;
+        var result = findInDocument(innerDoc, selector);
+        if (result) return result;
+      } catch (e) {
+        // 다른 도메인 iframe이면 접근이 막히는데, 이 사이트 내부 프레임이라면 문제 없음
+      }
+    }
+    return null;
+  }
   function findTable(cls) {
-    return document.querySelector('.' + cls + ' table.pumpkinSection');
+    return findInDocument(document, '.' + cls + ' table.pumpkinSection');
   }
   var leftTable = findTable('pumpkinBodyLeft');
   var midTable = findTable('pumpkinBodyMid');
@@ -69,7 +90,8 @@
     var startText = cellText(midRow, startIdx);
     var endText = cellText(midRow, endIdx);
     var workTypeText = workTypeIdx >= 0 ? cellText(midRow, workTypeIdx) : '';
-    if (!dateText || !startText) continue; // 출근 기록이 없는 행(휴일 등)은 건너뜀
+    // 출근 기록이 없는 행(휴일 등)은 건너뜀
+    if (!dateText || !startText) continue;
     records.push([dateText, workTypeText, startText, endText]);
   }
 
