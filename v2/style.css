@@ -560,6 +560,21 @@ input:focus, select:focus {
   color: var(--warning);
 }
 
+.bookmarklet-install {
+  margin: 10px 0;
+}
+
+.bookmarklet-link {
+  display: inline-flex;
+  cursor: grab;
+  border: 2px dashed rgba(255, 255, 255, 0.6);
+  user-select: none;
+}
+
+.bookmarklet-link:active {
+  cursor: grabbing;
+}
+
 .matching-dialog {
   width: min(1100px, calc(100% - 28px));
   max-height: min(760px, calc(100vh - 40px));
