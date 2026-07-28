@@ -682,7 +682,9 @@ function renderAttendanceItem(entry) {
   const status = getEntryStatus(entry);
   const schedule = WORK_TYPES[resolveWorkTypeKey(entry.workType)];
   const overtimeChecked = Boolean(entry.overtime ?? entry.overtimeChecked);
-  const visibleAllocations = entry.allocations.filter((allocation) => isUsageHistoryVisible(allocation.usageDate));
+  const visibleAllocations = entry.remainingMinutes > 0
+    ? entry.allocations
+    : entry.allocations.filter((allocation) => isUsageHistoryVisible(allocation.usageDate));
   const usedDetails = visibleAllocations.length
     ? visibleAllocations.map((allocation) => formatUsageRange({ date: allocation.usageDate, startTime: allocation.usageStart, endTime: allocation.usageEnd }, allocation.minutes)).join(" / ")
     : (entry.allocations.length ? "표시 기간 종료" : "아직 사용되지 않음");
