@@ -1350,11 +1350,11 @@ function shouldShowAttendanceEntry(entry, referenceDate = getTodayString()) {
   return entry.allocations.some((allocation) => isUsageHistoryVisible(allocation.usageDate, referenceDate));
 }
 function isEntryExpired(entry, referenceDate = getTodayString()) {
-  return compareDate(entry.expiryDate, referenceDate) <= 0;
+  return compareDate(entry.expiryDate, referenceDate) < 0;
 }
 function isExpiredAttendanceDate(attendanceDate, referenceDate = getTodayString()) {
   if (!attendanceDate) return true;
-  return compareDate(addDays(attendanceDate, 30), referenceDate) <= 0;
+  return compareDate(addDays(attendanceDate, 30), referenceDate) < 0;
 }
 function isAttendanceHistoryVisible(attendanceDate, referenceDate = getTodayString()) {
   return compareDate(referenceDate, addDays(attendanceDate, USAGE_HISTORY_VISIBLE_DAYS)) < 0;
